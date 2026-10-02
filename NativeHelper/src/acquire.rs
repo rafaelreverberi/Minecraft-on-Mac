@@ -261,3 +261,48 @@ fn strong_digest(value:&str)->bool {
  use super::*;
  #[test]fn bedrock_requires_full_sha256_anchor(){assert!(strong_digest(&"ab".repeat(32)));assert!(strong_digest(&base64::engine::general_purpose::STANDARD.encode([1u8;32])));assert!(!strong_digest(&"ab".repeat(20)));assert!(!strong_digest(""));assert!(!strong_digest("untrusted"));}
 }
+
+/// Engineering-only public trust-anchor inspection of our pinned official SDK.
+/// Never writes private keys, executables or redistributable binaries.
+#[cfg(feature="bootstrap-pins")]
+pub fn extract_public_signing_keys(archive:&Path,out:&Path)->Result<()> {
+ if hash(archive)?!=SDK_HASH { return Err(err()); }
+ let mut zip=zip::ZipArchive::new(std::fs::File::open(archive)?)?;
+ let mut targets=HashSet::new();let mut cabinets=vec![];
+ for i in 0..zip.len() {
+  let mut entry=zip.by_index(i)?;let name=entry.name().to_owned();
+  if !name.contains("Installers/") {continue;}
+  if name.ends_with(".msi") && entry.size()<64*1024*1024 {
+   let mut bytes=vec![];entry.read_to_end(&mut bytes)?;let mut msi=msi::Package::open(std::io::Cursor::new(bytes))?;
+   if !msi.has_table("File") {continue;}
+   for row in msi.select_rows(msi::Select::table("File"))? {
+    let name=row["FileName"].as_str().unwrap_or("").split('|').next_back().unwrap_or("").to_ascii_lowercase();
+    if ["makepkg", "packageutil", "xcihash", "xvdd", "packager", "xsapi"].iter().any(|s|name.contains(s)) {
+     println!("{}",serde_json::json!({"sdkTool":name}));
+     if let Some(id)=row["File"].as_str(){targets.insert(id.to_owned());}
+    }
+   }
+  } else if name.ends_with(".cab") {cabinets.push(name);}
+ }
+ for name in cabinets {
+  let mut entry=zip.by_name(&name)?;if entry.size()>600*1024*1024{return Err(err());}
+  let mut bytes=vec![];entry.read_to_end(&mut bytes)?;let mut cab=cab::Cabinet::new(std::io::Cursor::new(bytes))?;
+  let names:Vec<_>=cab.folder_entries().flat_map(|f|f.file_entries()).filter(|f| targets.contains(f.name()) && f.uncompressed_size()<64*1024*1024).map(|f|f.name().to_owned()).collect();
+  for name in names {
+   let mut bytes=vec![];cab.read_file(&name)?.read_to_end(&mut bytes)?;
+   println!("{}",serde_json::json!({"sdkToolBytes":bytes.len(),"rsaPublicMarkers":bytes.windows(4).filter(|b|*b==b"RSA1").count()}));
+   for i in 0..bytes.len().saturating_sub(0x21b) {
+    if &bytes[i..i+4]!=b"RSA1" {continue;}
+    let blob=&bytes[i..i+0x21b];let hash=hex(Sha256::digest(blob));
+    let name=match hash.as_str() {
+     "618c5fb1193040af8bc1c0199b850b4b5c42e43ce388129180284e4ef0b18082"=>"GreenXvdPublicKey",
+     "183f0ae05431e4ad91554e88946967c872997227dbe6c85116f5fd2fd2d1229e"=>"GreenGamesPublicKey",
+     _=>continue,
+    };
+    let path=out.join(format!("{name}.rsa"));if !path.exists(){create(&path)?.write_all(blob)?;}
+    println!("{}",serde_json::json!({"publicKey":name,"sha256":hash}));
+   }
+  }
+ }
+ Ok(())
+}

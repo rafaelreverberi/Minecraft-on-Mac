@@ -48,10 +48,28 @@ async fn main() {
             println!("{}",serde_json::json!({"schema":1,"type":"error","code":code}));std::process::exit(1);
         } return;
     }
+    #[cfg(feature="bootstrap-pins")]
+    if command == "bedrock-review-download" {
+        let out = std::env::args().nth(2).unwrap_or_default();
+        let result = AssertUnwindSafe(package::review_download(std::path::Path::new(&out))).catch_unwind().await;
+        if !matches!(result, Ok(Ok(()))) { println!("{{\"schema\":1,\"code\":\"PACKAGE_REVIEW_FAILED\"}}"); std::process::exit(1); }
+        return;
+    }
+    #[cfg(feature="bootstrap-pins")]
+    if command == "package-audit" {
+        let result = AssertUnwindSafe(package::audit_bedrock(std::env::args().nth(2).as_deref())).catch_unwind().await;
+        if !matches!(result, Ok(Ok(()))) { println!("{{\"schema\":1,\"code\":\"PACKAGE_AUDIT_FAILED\"}}"); std::process::exit(1); }
+        return;
+    }
     if command == "bedrock-service" {
         let root = std::env::args().nth(2).unwrap_or_default();
         let _ = AssertUnwindSafe(bedrock_account_service::run(std::path::Path::new(&root))).catch_unwind().await;
         return;
+    }
+    #[cfg(feature="bootstrap-pins")]
+    if command == "sdk-public-audit" {
+        let args:Vec<_>=std::env::args().collect();
+        if args.len()!=4 || acquire::extract_public_signing_keys(std::path::Path::new(&args[2]),std::path::Path::new(&args[3])).is_err(){std::process::exit(1)};return;
     }
     if command == "sdk-headers" {
         let args:Vec<_>=std::env::args().collect();

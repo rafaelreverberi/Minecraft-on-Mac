@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "gameId": "bedrock",
+  "version": "1.26.5203.0",
+  "contentId": "7792d9ce-355a-493c-afbd-768f4a77c3b0",
+  "size": 2069975040,
+  "sha256": "af5a72dab1a6e72fb63f931f5d80961b85090142994b93d60d8cd7a3d5a5f6c4",
+  "headerSignature": "Microsoft retail RSA-PSS-SHA256",
+  "publicKeySHA256": "183f0ae05431e4ad91554e88946967c872997227dbe6c85116f5fd2fd2d1229e",
+  "hashTreePages": 2975,
+  "verifiedContentPages": 502386,
+  "reservedAndMutablePages": "canonical baseline",
+  "decrypted": false,
+  "packageRevision": "4650c7c5-9163-48e9-9e89-6a5584d9833f",
+  "source": "Authenticated Microsoft Packages PC metadata, licensed account, public encrypted Xbox CDN container",
+  "sdkTrustSource": {
+    "url": "https://github.com/microsoft/GDK/releases/download/April-2025-Update-6-v2504.6.4142/GDK_2504.6.4142.zip",
+    "sha256": "b10d02d2b3619129fb5d176a762fb10961dd4a59c3a19dc64a6e38e03deb590f",
+    "publicKeySource": "xsapi.dll from the pinned SDK; public RSA1 blob only, no private/content key"
+  },
+  "formatReviewSource": {
+    "repository": "https://github.com/emoose/xvdtool",
+    "revision": "6fc28862cc5fb711843c0e717101ce4034acf805"
+  },
+  "reviewScript": "scripts/review_bedrock_pin.py",
+  "reviewScriptSHA256": "02097bbd307fd645f44d4a4d07e1531f589f121f41c12df9492363b3f1fa9120",
+  "reviewDate": "2026-10-02"
+}
