@@ -34,6 +34,16 @@ public actor LibraryStore {
                 let path = try FileSafety.child(folder, of: root)
                 try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             }
+            // Recover a deletion interrupted between folder rename and database commit.
+            for install in database.installations where install.managed {
+                let final = try FileSafety.child("\(install.version)-\(install.id.uuidString)", of: root.appendingPathComponent("Games/dungeons2/Versions"))
+                let staging = try FileSafety.child(".staging-\(install.id.uuidString)", of: root.appendingPathComponent("Games/dungeons2/Versions"))
+                if install.path.path == final.appendingPathComponent("Game").path, !fm.fileExists(atPath: final.path), fm.fileExists(atPath: staging.path) {
+                    let receipt = try JSONDecoder().decode(Installation.self, from: Data(contentsOf: FileSafety.child("metadata.json", of: staging)))
+                    guard receipt.id == install.id, receipt.managed, receipt.bottle == install.bottle else { throw LauncherError("MANIFEST_MISMATCH", "Interrupted deletion receipt does not match.") }
+                    try FileSafety.validateTree(staging); try fm.moveItem(at: staging, to: final)
+                }
+            }
             let cacheReceipt = try FileSafety.child("cache-manifest.json", of: root)
             if !FileManager.default.fileExists(atPath: cacheReceipt.path) { try FileSafety.write([String:String](), to: cacheReceipt) }
             self.lockFD = fd
@@ -43,7 +53,16 @@ public actor LibraryStore {
         }
     }
     deinit { if lockFD >= 0 { flock(lockFD, LOCK_UN); close(lockFD) } }
-    public func snapshot() -> LibraryDatabase { database }
+    public func snapshot() -> LibraryDatabase {
+        var result = database
+        for index in result.installations.indices where result.installations[index].managed {
+            let install = result.installations[index]
+            if let folder = try? FileSafety.child("\(install.version)-\(install.id.uuidString)", of: versionsRoot), install.path.path == folder.appendingPathComponent("Game").path {
+                result.installations[index].storageBytes = try? FileSafety.diskUsage(folder)
+            }
+        }
+        return result
+    }
     public func staleStaging() -> [String] {
         ((try? fm.contentsOfDirectory(atPath: versionsRoot.path)) ?? []).filter { $0.hasPrefix(".staging-") }.sorted()
     }
@@ -155,6 +174,8 @@ public actor LibraryStore {
                 let relative = String(file.path.dropFirst(destination.path.count + 1))
                 all[relative] = try FileSafety.hash(file); count += 1
             }
+            install.origin = "snapshot"
+            install.storageBytes = try FileSafety.diskUsage(destination)
             install.packageRevision = source.packageRevision
             install.hashes = all; install.diskBytes = try FileSafety.diskUsage(destination)
             let final = try FileSafety.child("\(source.version)-\(newID.uuidString)", of: versionsRoot)
@@ -183,7 +204,7 @@ public actor LibraryStore {
         let id = UUID(); let stage = try FileSafety.child(".staging-\(id.uuidString)", of: versionsRoot)
         try fm.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions:0o700])
         let game = stage.appendingPathComponent("Game")
-        var install = Installation(id: id, version: profile.version, path: game, bottle: database.installations.first(where: { $0.managed && $0.compatibilityProfile.hasPrefix("dungeons2-managed-") })?.bottle ?? "MinecraftMac-\(id.uuidString)", managed: true, state: .preparing, compatibilityProfile: profile.id)
+        var install = Installation(id: id, version: profile.version, path: game, bottle: database.installations.first(where: { $0.managed && $0.compatibilityProfile.hasPrefix("dungeons2-managed-") })?.bottle ?? database.retainedEnvironments?.first ?? "MinecraftMac-\(id.uuidString)", managed: true, state: .preparing, compatibilityProfile: profile.id)
         try FileSafety.write(install, to: stage.appendingPathComponent("metadata.json"))
         try await ManagedInstaller.acquire(stage: stage, progress: progress)
         try Task.checkCancellation(); try FileSafety.validateTree(stage)
@@ -194,6 +215,7 @@ public actor LibraryStore {
             let base = relative.hasPrefix("Components/") ? stage : game
             guard try FileSafety.hash(FileSafety.child(relative, of: base)) == expected else { throw LauncherError("PACKAGE_INVALID", "Downloaded package files failed verification.") }
         }
+        install.origin = "download"
         install.packageRevision = receipt.revision
         let bin = try FileSafety.child("Dungeons/Binaries/WinGDK", of: game)
         for name in ["XCurl.dll", "xgameruntime.dll"] {
@@ -219,12 +241,14 @@ public actor LibraryStore {
             install.hashes[String(file.path.dropFirst(game.path.count + 1))] = try FileSafety.hash(file)
         }
         install.diskBytes = try FileSafety.diskUsage(game)
+        install.storageBytes = try FileSafety.diskUsage(stage)
         install = try verify(install, progress: progress)
         let final = try FileSafety.child("\(install.version)-\(id.uuidString)", of: versionsRoot)
         install.path = final.appendingPathComponent("Game")
         try FileSafety.write(install, to: stage.appendingPathComponent("metadata.json"))
         try fm.moveItem(at: stage, to: final)
         var next = database; next.installations.append(install); next.current = install.id
+        next.retainedEnvironments?.removeAll { $0 == install.bottle }
         do { try persist(next) } catch { try? fm.moveItem(at: final, to: stage); throw error }
         progress(.init("Ready to play", completed: 1, total: 1)); return install
     }
@@ -239,27 +263,55 @@ public actor LibraryStore {
             }
         }.value
     }
-    public func remove(_ id: UUID) throws {
+    public func remove(_ id: UUID, removeEnvironment: Bool = false) throws {
         try checkIdle()
         guard let install = database.installations.first(where: { $0.id == id }) else { throw LauncherError("VERSION_MISSING", "Installation is unavailable.") }
-        guard database.current != id else { throw LauncherError("CURRENT_VERSION", "Select another version or clear the current selection first.") }
+        var environment: URL?
+        if removeEnvironment {
+            guard install.managed, install.compatibilityProfile.hasPrefix("dungeons2-managed-"), !database.installations.contains(where: { $0.id != id && $0.bottle == install.bottle }),
+                  let crossOver = self.crossOver ?? .detect() else { throw LauncherError("ENVIRONMENT_SHARED", "Only an owned environment unused by other versions can be deleted.") }
+            let bottle = try crossOver.bottleURL(install.bottle)
+            let owner = try JSONDecoder().decode([String:String].self, from: Data(contentsOf: FileSafety.child("minecraftmac-owner.json", of: bottle)))
+            guard owner["schema"] == "1", let ownerID = owner["owner"], UUID(uuidString: ownerID) != nil, install.bottle == "MinecraftMac-\(ownerID)" else { throw LauncherError("MANIFEST_MISMATCH", "This environment is not owned by the launcher.") }
+            environment = bottle
+        }
+        var next = database; next.installations.removeAll { $0.id == id }
+        if next.current == id { next.current = nil }
+        if install.managed && install.compatibilityProfile.hasPrefix("dungeons2-managed-") {
+            var retained = next.retainedEnvironments ?? []
+            retained.removeAll { $0 == install.bottle }
+            if !removeEnvironment && !next.installations.contains(where: { $0.bottle == install.bottle }) { retained.append(install.bottle) }
+            next.retainedEnvironments = retained
+        }
         if install.managed {
             let expected = try FileSafety.child("\(install.version)-\(install.id.uuidString)", of: versionsRoot)
-            guard install.path.path == expected.appendingPathComponent("Game").path else {
-                throw LauncherError("MANIFEST_MISMATCH", "Managed path does not match its recorded version.")
-            }
+            guard install.path.path == expected.appendingPathComponent("Game").path else { throw LauncherError("MANIFEST_MISMATCH", "Managed path does not match its recorded version.") }
             let receipt = try JSONDecoder().decode(Installation.self, from: Data(contentsOf: FileSafety.child("metadata.json", of: expected)))
-            guard receipt.id == id, receipt.managed else { throw LauncherError("MANIFEST_MISMATCH", "Installation receipt does not match.") }
+            guard receipt.id == id, receipt.managed, receipt.bottle == install.bottle else { throw LauncherError("MANIFEST_MISMATCH", "Installation receipt does not match.") }
             try FileSafety.validateTree(expected)
             for relative in ["Dungeons/Binaries/WinGDK/savedata", "Dungeons/Saved/SaveGames"] {
-                if fm.fileExists(atPath: expected.appendingPathComponent("Game").appendingPathComponent(relative).path) { throw LauncherError("LOCAL_SAVES_PRESENT", "This older version contains local saves.", recovery: "Preserve or migrate these saves before removing the version. They were not deleted.") }
+                if fm.fileExists(atPath: expected.appendingPathComponent("Game").appendingPathComponent(relative).path) { throw LauncherError("LOCAL_SAVES_PRESENT", "This older version contains local saves.", recovery: "Preserve or migrate these saves first. They were not deleted.") }
             }
-            // Commit removal before physical cleanup; an interruption leaves an orphan, never a usable partial version.
-            var next = database; next.installations.removeAll { $0.id == id }; try persist(next)
-            try fm.removeItem(at: expected)
-        } else {
-            var next = database; next.installations.removeAll { $0.id == id }; try persist(next)
+            // A crash leaves receipt-backed staging, never a partially deleted playable version.
+            let staging = try FileSafety.child(".staging-\(id.uuidString)", of: versionsRoot)
+            guard !fm.fileExists(atPath: staging.path) else { throw LauncherError("OPERATION_BUSY", "Temporary cleanup for this version already exists.") }
+            try fm.moveItem(at: expected, to: staging)
+            do { try persist(next) } catch { try? fm.moveItem(at: staging, to: expected); throw error }
+            do { try fm.removeItem(at: staging) } catch { throw LauncherError("CLEANUP_PENDING", "The version is unregistered; temporary files still need cleanup in Storage.") }
+        } else { try persist(next) }
+        if let environment {
+            // Foundation removes symlinks themselves; CrossOver intentionally links host folders.
+            do { try fm.removeItem(at: environment) } catch { throw LauncherError("ENVIRONMENT_CLEANUP_FAILED", "The version was deleted, but its environment could not be fully removed.", recovery: "Review the remaining owned environment in CrossOver. Microsoft login is preserved.") }
         }
+    }
+    public func removeRetainedEnvironment(_ name: String) throws {
+        try checkIdle()
+        guard database.retainedEnvironments?.contains(name) == true, !database.installations.contains(where: { $0.bottle == name }), let crossOver = self.crossOver ?? .detect() else { throw LauncherError("ENVIRONMENT_SHARED", "This environment is not retained or is still in use.") }
+        let bottle = try crossOver.bottleURL(name)
+        let owner = try JSONDecoder().decode([String:String].self, from: Data(contentsOf: FileSafety.child("minecraftmac-owner.json", of: bottle)))
+        guard owner["schema"] == "1", let ownerID = owner["owner"], UUID(uuidString: ownerID) != nil, name == "MinecraftMac-\(ownerID)" else { throw LauncherError("MANIFEST_MISMATCH", "This environment is not owned by the launcher.") }
+        try fm.removeItem(at: bottle)
+        var next = database; next.retainedEnvironments?.removeAll { $0 == name }; try persist(next)
     }
     public func clearSelection() throws { try checkIdle(); var next = database; next.current = nil; try persist(next) }
     public func removeStaging(_ name: String) throws {

@@ -140,28 +140,36 @@ struct BottlePicker: View {
 struct VersionsView: View {
     @EnvironmentObject var model: AppModel
     @State private var pendingRemoval: Installation?
+    @State private var removeEnvironment = false
     @State private var cloneConfirmation: Installation?
     @State private var clearCurrent = false
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Versions").font(.largeTitle.bold())
-            Text("Keep a working installation while preparing a separate snapshot.").foregroundStyle(.secondary)
+            Text("Installed game copies, not launcher bundles. Current marks the copy used by Start Game.").foregroundStyle(.secondary)
             ForEach(model.database.installations) { install in
                 GroupBox {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Text(install.version).font(.title2.bold())
+                            Text("Minecraft Dungeons II • \(install.version)").font(.title2.bold())
                             if install.id == model.database.current { Text("Current").font(.caption.bold()).padding(5).background(.green.opacity(0.15), in: Capsule()) }
-                            Spacer(); Text(install.managed ? "Managed snapshot" : "External reference").foregroundStyle(.secondary)
+                            Spacer(); Text(install.displayKind).foregroundStyle(.secondary)
                         }
-                        Text("\(ByteCountFormatter.string(fromByteCount: install.diskBytes, countStyle: .file)) • \(install.bottle) • \(install.state.rawValue)").font(.callout).foregroundStyle(.secondary)
+                        Text("\(ByteCountFormatter.string(fromByteCount: install.storageBytes ?? install.diskBytes, countStyle: .file)) of files • \(install.state.rawValue)").font(.callout).foregroundStyle(.secondary)
+                        Text(install.managed ? "This launcher manages this copy. Version deletion includes its downloaded component cache." : "Your original local copy. Removing this entry only unregisters it; its files stay intact.").font(.callout).foregroundStyle(.secondary)
+                        Text(install.path.path).font(.caption.monospaced()).textSelection(.enabled)
+                        Button("Show in Finder") { NSWorkspace.shared.open(install.managed ? install.path.deletingLastPathComponent() : install.path) }
+                        DisclosureGroup("Game environment") {
+                            Text(install.bottle).font(.caption.monospaced()).textSelection(.enabled)
+                            Text("The CrossOver environment stores prerequisites and account-specific saves separately from game versions.").font(.caption).foregroundStyle(.secondary)
+                        }
                         HStack {
                             Button("Use") { Task { await model.select(install) } }.disabled(install.id == model.database.current || install.state != .ready)
                             Button("Verify") { Task { await model.verify(install) } }
                             Button("Create Snapshot…") { cloneConfirmation = install }
-                            Button(install.managed ? "Remove…" : "Unregister…", role: .destructive) { pendingRemoval = install }.disabled(install.id == model.database.current)
+                            Button(install.managed ? "Delete Version…" : "Unregister…", role: .destructive) { removeEnvironment = false; pendingRemoval = install }
                         }.disabled(model.busy || model.running)
-                        if model.developerMode { Text(install.path.path).font(.caption.monospaced()).textSelection(.enabled); Text(install.compatibilityProfile).font(.caption.monospaced()) }
+                        if model.developerMode { Text(install.compatibilityProfile).font(.caption.monospaced()) }
                     }.padding(10)
                 }
             }
@@ -175,9 +183,27 @@ struct VersionsView: View {
                 }
             }
         }
-        .confirmationDialog("Remove this installation?", isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }), titleVisibility: .visible) {
-            if let install = pendingRemoval { Button(install.managed ? "Remove Managed Game Files" : "Unregister Only", role: .destructive) { Task { await model.remove(install) }; pendingRemoval = nil } }
-        } message: { Text("Managed game files are removed only from the recorded version folder. External files, saved games, login and CrossOver bottles are preserved.") }
+        .sheet(item: $pendingRemoval) { install in
+            VStack(alignment: .leading, spacing: 16) {
+                Text(install.managed ? "Delete Version \(install.version)?" : "Unregister local installation?").font(.title2.bold())
+                Text(install.managed ? "Deletes the complete version folder, including game files, downloaded component cache and installation metadata." : "Removes this entry from the launcher. Your original game files and environment are preserved.")
+                if install.id == model.database.current { Text("This is the current installation. Start Game will be unavailable until you select or install another copy.").foregroundStyle(.secondary) }
+                if install.managed && install.compatibilityProfile.hasPrefix("dungeons2-managed-") {
+                    let shared = model.database.installations.contains { $0.id != install.id && $0.bottle == install.bottle }
+                    Toggle("Also delete this game's environment and all its saves", isOn: $removeEnvironment).disabled(shared)
+                    Text(shared ? "Another version uses this environment, so it must be kept." : "Off by default. Enabling this permanently removes the owned CrossOver environment and its saved games. Microsoft Keychain login is preserved.").font(.callout).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Cancel") { pendingRemoval = nil }.keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button(install.managed ? "Delete Version" : "Unregister", role: .destructive) {
+                        let deleteEnvironment = removeEnvironment
+                        pendingRemoval = nil
+                        Task { await model.remove(install, removeEnvironment: deleteEnvironment) }
+                    }.disabled(model.busy || model.running)
+                }
+            }.padding(24).frame(width: 520)
+        }
         .confirmationDialog("Create a managed snapshot?", isPresented: Binding(get: { cloneConfirmation != nil }, set: { if !$0 { cloneConfirmation = nil } }), titleVisibility: .visible) {
             if let install = cloneConfirmation { Button("Clone and Verify") { Task { await model.clone(install) }; cloneConfirmation = nil } }
         } message: { Text("Copies this local installation using APFS copy-on-write and hashes all game files. This can take several minutes. Current selection stays available.") }
@@ -197,6 +223,7 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @State private var cacheConfirmation = false
     @State private var pendingStaging: String?
+    @State private var pendingEnvironment: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Settings").font(.largeTitle.bold())
@@ -215,6 +242,13 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Button("Open Launcher Data") { model.open(LibraryStore.defaultRoot) }
                     Button("Clear Download Cache…") { cacheConfirmation = true }.disabled(model.busy || model.running)
+                    ForEach(model.database.retainedEnvironments ?? [], id: \.self) { name in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Saved game environment (no installed version)").font(.callout)
+                            Text("Kept for your saves; reused on the next installation.").font(.caption).foregroundStyle(.secondary)
+                            Button("Delete Environment and Saves…", role: .destructive) { pendingEnvironment = name }.disabled(model.busy || model.running)
+                        }
+                    }
                     ForEach(model.staging, id: \.self) { name in
                         HStack { Text("Interrupted snapshot").font(.callout); Spacer(); Button("Delete Temporary Files…") { pendingStaging = name }.disabled(model.busy || model.running) }
                     }
@@ -230,6 +264,9 @@ struct SettingsView: View {
             }
             Text("No telemetry. Credentials are never included in diagnostics. Native Microsoft credentials use a separate macOS Keychain namespace. The reference game retains its existing login.").font(.caption).foregroundStyle(.secondary)
         }
+        .confirmationDialog("Permanently delete this environment and all its saves?", isPresented: Binding(get: { pendingEnvironment != nil }, set: { if !$0 { pendingEnvironment = nil } }), titleVisibility: .visible) {
+            if let name = pendingEnvironment { Button("Delete Environment and Saves", role: .destructive) { pendingEnvironment = nil; Task { await model.perform { try await model.store?.removeRetainedEnvironment(name) } } } }
+        } message: { Text("Deletes only this retained, launcher-owned CrossOver environment. Microsoft Keychain login and other game environments are preserved.") }
         .confirmationDialog("Clear download cache?", isPresented: $cacheConfirmation, titleVisibility: .visible) {
             Button("Clear Cache", role: .destructive) { Task { await model.perform { try await model.store?.clearCache(); try await model.diagnostics?.record(.cacheCleared) } } }
         } message: { Text("Installed versions and saved games are preserved.") }

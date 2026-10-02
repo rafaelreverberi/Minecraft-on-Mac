@@ -125,13 +125,79 @@ final class CoreTests: XCTestCase {
         try await store.repairCompatibility(copy.id, referenceID: original.id)
         XCTAssertEqual(try FileSafety.hash(brokenDLL), profile.hashes["Dungeons/Binaries/WinGDK/XCurl.dll"])
         try await store.select(copy.id)
-        do { try await store.remove(copy.id); XCTFail("Current version removed") } catch {}
-        try await store.select(original.id); try await store.remove(copy.id)
+        try await store.remove(copy.id)
+        db = await store.snapshot(); XCTAssertNil(db.current)
+        try await store.select(original.id)
         XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: game.appendingPathComponent("MicrosoftGame.config").path))
         try await store.clearSelection(); try await store.remove(original.id)
         XCTAssertTrue(FileManager.default.fileExists(atPath: game.path))
         db = await store.snapshot(); XCTAssertNil(db.current); XCTAssertTrue(db.installations.isEmpty)
+    }
+    func removalFixture(shared: Bool = false) throws -> (LibraryStore, Installation, URL, URL) {
+        let root = try temp(), bottles = try temp(), id = UUID()
+        let folder = root.appendingPathComponent("Games/dungeons2/Versions/1.1.1.0-\(id.uuidString)")
+        let game = folder.appendingPathComponent("Game")
+        try FileManager.default.createDirectory(at: game, withIntermediateDirectories: true)
+        try Data("game fixture".utf8).write(to: game.appendingPathComponent("data.bin"))
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("Components"), withIntermediateDirectories: true)
+        try Data("component fixture".utf8).write(to: folder.appendingPathComponent("Components/cache.bin"))
+        let name = "MinecraftMac-\(UUID().uuidString)"
+        let bottle = bottles.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: bottle.appendingPathComponent("drive_c/windows/system32"), withIntermediateDirectories: true)
+        try Data().write(to: bottle.appendingPathComponent("cxbottle.conf"))
+        try Data("save fixture".utf8).write(to: bottle.appendingPathComponent("save.bin"))
+        try FileSafety.write(["schema":"1", "owner":String(name.dropFirst("MinecraftMac-".count))], to: bottle.appendingPathComponent("minecraftmac-owner.json"))
+        let install = Installation(id: id, version: "1.1.1.0", path: game, bottle: name, managed: true, state: .ready, compatibilityProfile: "dungeons2-managed-fixture")
+        try FileSafety.write(install, to: folder.appendingPathComponent("metadata.json"))
+        var db = LibraryDatabase(); db.installations = [install]; db.current = id
+        if shared { db.installations.append(Installation(version: "1.1.1.0", path: game, bottle: name, managed: true, compatibilityProfile: "dungeons2-managed-fixture")) }
+        try FileSafety.write(db, to: root.appendingPathComponent("library.json"))
+        let store = try LibraryStore(root: root, crossOver: CrossOver(wine: root.appendingPathComponent("absent"), bottlesRoot: bottles), runtimeTests: false, isGameRunning: { false })
+        return (store, install, folder, bottle)
+    }
+    func testDeleteCurrentVersionRemovesEntireFolderAndRetainsSaves() async throws {
+        let (store, install, folder, bottle) = try removalFixture()
+        try await store.remove(install.id)
+        let db = await store.snapshot()
+        XCTAssertNil(db.current); XCTAssertTrue(db.installations.isEmpty)
+        XCTAssertEqual(db.retainedEnvironments, [install.bottle])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bottle.appendingPathComponent("save.bin").path))
+        try await store.removeRetainedEnvironment(install.bottle)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bottle.path))
+    }
+    func testDeleteEnvironmentUnlinksHostSymlinksWithoutFollowingThem() async throws {
+        let (store, install, folder, bottle) = try removalFixture()
+        let host = try temp(); let sentinel = host.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: sentinel)
+        try FileManager.default.createSymbolicLink(at: bottle.appendingPathComponent("host-link"), withDestinationURL: host)
+        try await store.remove(install.id, removeEnvironment: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bottle.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinel.path))
+    }
+    func testSharedOrUnownedEnvironmentDeletionIsRefusedBeforeVersionChanges() async throws {
+        let (store, install, folder, bottle) = try removalFixture(shared: true)
+        do { try await store.remove(install.id, removeEnvironment: true); XCTFail("Shared environment removed") } catch {}
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bottle.path))
+        let (other, copy, otherFolder, otherBottle) = try removalFixture()
+        try FileSafety.write(["schema":"1", "owner":UUID().uuidString], to: otherBottle.appendingPathComponent("minecraftmac-owner.json"))
+        do { try await other.remove(copy.id, removeEnvironment: true); XCTFail("Unowned environment removed") } catch {}
+        XCTAssertTrue(FileManager.default.fileExists(atPath: otherFolder.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: otherBottle.path))
+    }
+    func testInterruptedDeletionRestoresRegisteredVersionBeforeOpeningLibrary() async throws {
+        let (_, install, folder, bottle) = try removalFixture()
+        let versions = folder.deletingLastPathComponent()
+        let root = versions.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let staging = versions.appendingPathComponent(".staging-\(install.id.uuidString)")
+        try FileManager.default.moveItem(at: folder, to: staging)
+        let store = try LibraryStore(root: root, crossOver: CrossOver(wine: root.appendingPathComponent("absent"), bottlesRoot: bottle.deletingLastPathComponent()), runtimeTests: false, isGameRunning: { false })
+        let db = await store.snapshot(); XCTAssertEqual(db.current, install.id)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("Game/data.bin").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
     }
     func testOptionalRedistributableArchitectureStillRequiresIntegrity() async throws {
         let (root, game, crossover, profile) = try fakeReference()

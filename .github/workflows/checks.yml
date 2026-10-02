@@ -1,0 +1,17 @@
+name: Offline checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  swift:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: swift test
+  credential-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: cargo test --locked --manifest-path Shared/CredentialBridge/Cargo.toml

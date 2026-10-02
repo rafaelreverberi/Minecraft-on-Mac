@@ -145,9 +145,9 @@ final class AppModel: ObservableObject {
     func select(_ install: Installation) async {
         guard let store else { return }; await perform { try await store.select(install.id) }
     }
-    func remove(_ install: Installation) async {
+    func remove(_ install: Installation, removeEnvironment: Bool = false) async {
         guard let store else { return }
-        await perform { try await store.remove(install.id); try await self.diagnostics?.record(.versionRemoved) }
+        await perform { try await store.remove(install.id, removeEnvironment: removeEnvironment); try await self.diagnostics?.record(.versionRemoved) }
     }
     func accountOperation(_ command: NativeAccount.Command) async {
         // Clear old ownership evidence immediately, including after a failed new check.

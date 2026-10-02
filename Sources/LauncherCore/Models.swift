@@ -44,6 +44,9 @@ public struct Installation: Codable, Identifiable, Sendable, Equatable {
     public var hashes: [String: String]
     public var compatibilityProfile: String
     public var packageRevision: String?
+    public var origin: String?
+    public var storageBytes: Int64?
+    public var displayKind: String { !managed ? "Existing local installation" : (origin == "snapshot" ? "Local snapshot" : (compatibilityProfile.hasPrefix("dungeons2-managed-") ? "Downloaded installation" : "Local snapshot")) }
     public let installedAt: Date
     public var lastSuccessfulTest: Date?
     public var diskBytes: Int64
@@ -59,6 +62,7 @@ public struct LibraryDatabase: Codable, Sendable {
     public var schema = 1
     public var installations: [Installation] = []
     public var current: UUID?
+    public var retainedEnvironments: [String]?
     public init() {}
 }
 public struct CompatibilityProfile: Codable, Sendable {

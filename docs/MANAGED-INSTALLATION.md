@@ -1,4 +1,4 @@
-# Managed installation — 0.2.0
+# Managed installation — 0.2.1
 
 The packaged Apple Silicon app includes its native account/download helper, the open-source Windows runtime and XCurl proxy, and offline ABI probes. No Homebrew, Python, Rust, MinGW or Xcode is needed on the destination Mac. Microsoft game files and SDK DLLs are downloaded directly from their publishers and never redistributed in the app.
 
@@ -12,10 +12,12 @@ A dedicated Windows 11 CrossOver bottle carries an owner UUID receipt. Existing 
 
 Managed game authentication uses the same native account through an ephemeral localhost credential bridge. ChaCha20-Poly1305 protects bounded request/reply messages, binds direction and request nonces, and the broker rejects repeated nonces and nonallowlisted keys. Its random 256-bit key is passed through anonymous stdin and the game process environment only. No HTTP listener, command-line token, credential JSON/RON file, credential copy, or persisted authentication log is created. The broker exits when its parent pipe closes or the launch completes. Native and old Windows Xodus serialization is unchanged for the four allowed token entries.
 
-Update checks consult the real service. Unsupported versions are reported without download or replacement. Repair creates a newly verified managed version; the prior version remains available for rollback. Downloads are bounded by size/read timeout; interruptions currently restart from a new staging transaction rather than resume encrypted ranges.
+Update checks consult the real service. Unsupported versions are reported without download or replacement. Compatibility repair updates only pinned components in an owned environment after verifying game data. Full game-data damage requires a fresh download; the prior registered copy remains available. Downloads are bounded by size/read timeout; interruptions currently restart from a new staging transaction rather than resume encrypted ranges.
 
-Distribution is an ad-hoc signed private preview. Developer ID signing/notarization and a fully independent second-Mac login/download/gameplay/save test remain separate acceptance gates. See ACCEPTANCE.md for observed results.
+Distribution is an ad-hoc signed, unnotarized preview. Developer ID signing/notarization and a fully independent second-Mac login/download/gameplay/save test remain separate acceptance gates. See ACCEPTANCE.md for observed results.
 
 The live package service uses a composite version (`1.1.1.0.package-GUID`); numeric build and package revision are recorded separately, so same-build Store revisions are detectable. The real service does not provide FileHash for this container. The builder captures its full SHA-256 in a developer-only bootstrap, requiring the unchanged reference header/hash-table prefix and verification of all data pages. The released helper has that revision pin built in and rejects unknown digestless packages before download.
 
 Microsoft's legacy assets1/2.xboxlive.com endpoint serves these already encrypted public containers over HTTP and has no valid HTTPS certificate for the supplied hostname. Only this credential-free, query-free legacy game payload can use HTTP, and only with the fixed package SHA-256. Authentication, licensing and SDK downloads require validated HTTPS; certificate verification is never disabled. The bootstrap verifies the pinned reference prefix and all stored data-page hashes, following the [original XVD integrity implementation](https://github.com/emoose/xvdtool/blob/master/LibXboxOne/XVD/XVDFile.cs). No account token, cookie or license key is sent to the public asset host.
+
+Version deletion removes its full transaction folder, including component cache. Current can be removed after confirmation and its selection is cleared. A rename to receipt-backed staging separates database commit from physical cleanup, with interrupted pre-commit removal restored on library open. Saves/environment are retained and reused by default; explicit deletion of the final unshared owned environment includes its saves. External copies only unregister. Microsoft login is separate.
