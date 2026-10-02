@@ -27,3 +27,24 @@ Remaining boundaries: independent second Apple Silicon Mac, real multi-version S
 Versions now distinguishes downloaded installations, local snapshots, existing local registrations and Current selection; paths, Finder access and full version-folder logical size are visible. Delete Version removes all version files/cache/receipts, including Current, and clears its selection. Optional owned-environment/save deletion rejects shared and foreign receipts. Retained environments are recorded, reused on reinstall and separately removable in Storage. Tests verify current removal, cache deletion, default save preservation, explicit environment deletion, host symlink target preservation, and recovery of a deletion interrupted before database commit. 25 Swift tests passed (23 offline, two opt-in live tests skipped). The release bundle built and passed ad-hoc signing verification. No real user version or save was removed for testing.
 
 The 0.2.1 packaged runtime/proxy also passed all three live probes in a newly provisioned disposable CrossOver environment (40.205 seconds). Release notices include collected locked Rust dependency declarations and original license texts. Public preview publication is distinct from production signing/notarization.
+
+## Managed Bedrock feature branch (incomplete live acceptance)
+
+Bedrock's game-scoped database migration, version gates, persistent protected
+extraction fixtures and bundled provenance checks pass the 37-test Swift suite
+(two pre-existing opt-in live skips), six native-helper tests and 20 MSIXVC tests.
+The native credential bridge passes two tests. Disposable CrossOver runtime
+unit tests pass nine tests with two explicitly live tests ignored; a separate
+Bedrock WinRT/export probe succeeds under CrossOver 26.3. The release app builds
+and passes strict ad-hoc signature verification. These checks are not Bedrock
+gameplay evidence. Original DungeonsView presentation is unchanged, verified by
+source comparison after normalizing game-routing references.
+
+The user explicitly authorized fresh managed live acceptance. Microsoft confirmed
+ownership and package 1.26.5203.0; the installer refused the package with
+BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED because there was no acceptable authenticated
+full SHA256 or reviewed Bedrock revision pin. It stopped before download,
+materialization, environment provisioning or game launch. Fresh Bedrock gameplay,
+world save/reopen, controller and multiplayer remain unverified. See BEDROCK.md
+for storage, security and acquisition boundaries. Do not describe this feature
+as having met the full acceptance requirements yet.

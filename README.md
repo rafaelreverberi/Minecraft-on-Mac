@@ -64,3 +64,19 @@ MML_XCURL_INCLUDE=/path/to/official/XCurl/Include python3 scripts/package_app.py
 The packager builds the helper, Windows compatibility binaries and synthetic probes, checks resource hashes and ad-hoc signs the app. It does not install it or launch a game. GitHub CI runs offline Swift tests and bridge tests; actual CrossOver/account tests are opt-in and documented separately. See [architecture](ARCHITECTURE.md) and [roadmap](docs/ROADMAP.md).
 
 GPL-3.0-only, with the MIT and other upstream notices retained. Release assets include corresponding source; dependencies are pinned by lockfiles. This is an unofficial project, not affiliated with or endorsed by Microsoft, Mojang or CodeWeavers. Minecraft and CrossOver trademarks belong to their respective owners.
+
+## Minecraft: Bedrock
+
+Bedrock is integrated into the same managed library, with its own current version,
+owned environment and saves. The compatibility baseline is **1.26.5203.0**
+(Bedrock 26.52), **CrossOver 26.3.x**, Apple silicon and D3DMetal. Older builds
+are rejected; newer builds remain “Compatibility not verified yet”. Full licensed
+packages are decrypted once into persistent SSD files during installation; normal
+Play does not use Xodus streaming/RAM-disk materialization. No FPS improvement is
+claimed and no experimental allocator patch is enabled.
+
+See [Bedrock installation, storage, security and acceptance](docs/BEDROCK.md).
+Live gameplay in this launcher and admission of the official Bedrock package digest
+must be verified before calling this integration release-ready. The research
+baseline is [Bedrock on macOS](https://github.com/Roritharr/bedrock-on-macos);
+its manually installed files and account are never reused.

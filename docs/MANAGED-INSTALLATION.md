@@ -21,3 +21,12 @@ The live package service uses a composite version (`1.1.1.0.package-GUID`); nume
 Microsoft's legacy assets1/2.xboxlive.com endpoint serves these already encrypted public containers over HTTP and has no valid HTTPS certificate for the supplied hostname. Only this credential-free, query-free legacy game payload can use HTTP, and only with the fixed package SHA-256. Authentication, licensing and SDK downloads require validated HTTPS; certificate verification is never disabled. The bootstrap verifies the pinned reference prefix and all stored data-page hashes, following the [original XVD integrity implementation](https://github.com/emoose/xvdtool/blob/master/LibXboxOne/XVD/XVDFile.cs). No account token, cookie or license key is sent to the public asset host.
 
 Version deletion removes its full transaction folder, including component cache. Current can be removed after confirmation and its selection is cleared. A rename to receipt-backed staging separates database commit from physical cleanup, with interrupted pre-commit removal restored on library open. Saves/environment are retained and reused by default; explicit deletion of the final unshared owned environment includes its saves. External copies only unregister. Microsoft login is separate.
+
+## Bedrock and game isolation
+
+The same transaction protocol also routes gameId bedrock / Store 9NBLGGH2JHXJ.
+Its tested executable baseline is 1.26.5203.0, with a dedicated CrossOver 26.3.x
+Windows 11 D3DMetal profile and WinRT/GameInput probes. Current versions and
+retained environments are scoped by game. Protected files are extracted with
+full decryption into SSD files; the encrypted package is never a Play dependency.
+See [Bedrock details and acceptance limits](BEDROCK.md).

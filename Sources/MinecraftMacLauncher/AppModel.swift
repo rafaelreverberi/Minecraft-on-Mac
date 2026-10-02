@@ -16,12 +16,18 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(developerMode, forKey: "developerMode") }
     }
     @Published var selectedBottle = ""
-    @Published var account: AccountStatus?
+    @Published var selectedGame: GameDefinition = .dungeons2
+    @Published var accounts: [GameDefinition: AccountStatus] = [:]
+    var account: AccountStatus? {
+        get { accounts[selectedGame] }
+        set { accounts[selectedGame] = newValue }
+    }
     let nativeAccount = NativeAccount()
     let processes = GameProcess()
     var store: LibraryStore?
     var diagnostics: Diagnostics?
-    var current: Installation? { database.installations.first { $0.id == database.current } }
+    var current: Installation? { database.current(for: selectedGame) }
+    func current(for game: GameDefinition) -> Installation? { database.current(for: game) }
     var bottles: [String] { crossOver?.bottles() ?? [] }
     init() {
         do {
@@ -32,7 +38,7 @@ final class AppModel: ObservableObject {
     func load() async {
         await refresh()
         account = try? await nativeAccount.request(.status)
-        guard database.installations.isEmpty, let store else { return }
+        guard !database.installations.contains(where: { $0.gameId == "dungeons2" }), let store else { return }
         let legacy = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Games/MinecraftDungeons2-FullyDecrypted")
         if FileManager.default.fileExists(atPath: legacy.appendingPathComponent("MicrosoftGame.config").path), !selectedBottle.isEmpty {
             await perform {
@@ -63,18 +69,20 @@ final class AppModel: ObservableObject {
         guard panel.runModal() == .OK, let path = panel.url, let store else { return }
         Task { await perform { _ = try await store.registerExternal(path, bottle: self.selectedBottle, progress: self.progressHandler()) } }
     }
-    func play() async {
+    func play(game: GameDefinition? = nil) async {
+        let game = game ?? selectedGame
+        let current = database.current(for: game)
         crossOver = CrossOver.detect()
         guard let current, let store, let crossOver, !running, !busy else { return }
         error = nil
         await perform {
-            if current.compatibilityProfile.hasPrefix("dungeons2-managed-") {
-                let status = try await self.nativeAccount.request(.status)
-                if !status.signedIn { self.account = try await self.nativeAccount.request(.login) }
-                self.account = try await self.nativeAccount.request(.check)
+            if current.isOfficialManaged {
+                let status = try await self.nativeAccount.request(.status, game: game)
+                if !status.signedIn { self.accounts[game] = try await self.nativeAccount.request(.login, game: game) }
+                self.accounts[game] = try await self.nativeAccount.request(.check, game: game)
             }
-            if current.compatibilityProfile.hasPrefix("dungeons2-managed-") {
-                let profile = try CompatibilityProfile.managed()
+            if current.isOfficialManaged {
+                let profile = try CompatibilityProfile.managed(for: game)
                 if profile.hashes.contains(where: { current.hashes[$0.key] != $0.value }) {
                     // A launcher update supplies a new verified runtime; repair only owned files.
                     try await store.repairManaged(current.id, progress: self.progressHandler())
@@ -92,28 +100,33 @@ final class AppModel: ObservableObject {
             if exit != 0 { error = LauncherError("GAME_EXITED", "The CrossOver launch process exited with status \(exit).", recovery: "Review Diagnostics and check the game in CrossOver.") }
         } catch { self.error = error as? LauncherError ?? LauncherError("LAUNCH_FAILED", "The game could not start.") }
     }
-    func installAndPlay() async {
+    func installAndPlay(game: GameDefinition? = nil, launch: Bool = true) async {
+        let game = game ?? selectedGame
         crossOver = CrossOver.detect()
         guard let store, !busy, !running else { return }
         error = nil
         await perform {
             if self.crossOver == nil { throw LauncherError("CROSSOVER_MISSING", "Install and license CrossOver first. Open Settings for the official download.") }
             self.progress = .init("Checking Microsoft sign-in")
-            self.account = try await self.nativeAccount.request(.status)
-            if self.account?.signedIn != true { self.account = try await self.nativeAccount.request(.login) }
-            self.account = try await self.nativeAccount.request(.check)
-            guard self.account?.entitlement == "verified" else { throw LauncherError("ENTITLEMENT_NOT_CONFIRMED", "Microsoft did not confirm ownership.") }
-            _ = try await store.install(progress: self.progressHandler())
+            self.accounts[game] = try await self.nativeAccount.request(.status, game: game)
+            if self.accounts[game]?.signedIn != true { self.accounts[game] = try await self.nativeAccount.request(.login, game: game) }
+            self.accounts[game] = try await self.nativeAccount.request(.check, game: game)
+            guard self.accounts[game]?.entitlement == "verified" else { throw LauncherError("ENTITLEMENT_NOT_CONFIRMED", "Microsoft did not confirm ownership.") }
+            if let available = self.accounts[game]?.availableVersion { try game.validateVersion(available) }
+            _ = try await store.install(game: game, progress: self.progressHandler())
             self.message = "Game, Microsoft components and CrossOver environment are ready."
         }
-        if error == nil { await play() }
+        if error == nil && launch { await play(game: game) }
     }
-    func checkUpdates() async {
-        await accountOperation(.check)
-        guard error == nil, let available = account?.availableVersion else { return }
-        if available == current?.version && (current?.packageRevision == nil || current?.packageRevision == account?.availableRevision) { message = "Your game is up to date." }
-        else if available != "1.1.1.0" { error = LauncherError("COMPATIBILITY_UNVERIFIED", "A new game version is available, but its compatibility profile has not been verified yet.", recovery: "The current working version is preserved. Update the launcher when support for this version is released.") }
-        else { await installAndPlay() }
+    func checkUpdates(game requestedGame: GameDefinition? = nil) async {
+        let game = requestedGame ?? selectedGame
+        await accountOperation(.check, game: game)
+        guard error == nil, let available = accounts[game]?.availableVersion else { return }
+        if available == current(for: game)?.version && (current(for: game)?.packageRevision == nil || current(for: game)?.packageRevision == accounts[game]?.availableRevision) { message = "Your game is up to date." }
+        else {
+            do { try game.validateVersion(available) } catch { self.error = error as? LauncherError; return }
+            await installAndPlay(game: game, launch: false)
+        }
     }
     func clone(_ install: Installation) async {
         guard let store else { return }
@@ -128,16 +141,17 @@ final class AppModel: ObservableObject {
         await perform { _ = try await store.reverify(install.id, progress: self.progressHandler()); self.message = "File and CrossOver readiness checks passed." }
     }
     func repair(_ install: Installation) async {
+        let game = install.game
         guard let store else { return }
-        if install.compatibilityProfile.hasPrefix("dungeons2-managed-") {
+        if install.isOfficialManaged {
             await perform {
-                self.account = try await self.nativeAccount.request(.check)
+                self.accounts[game] = try await self.nativeAccount.request(.check, game: install.game)
                 try await store.repairManaged(install.id, progress: self.progressHandler())
                 self.message = "Compatibility repaired and verified. Game data and saved games are preserved."
             }
             return
         }
-        guard let reference = database.installations.first(where: { $0.id != install.id && $0.state == .ready }) else {
+        guard let reference = database.installations.first(where: { $0.id != install.id && $0.gameId == install.gameId && $0.state == .ready }) else {
             error = LauncherError("REPAIR_SOURCE_REQUIRED", "Register a separate verified installation to repair this snapshot."); return
         }
         await perform { try await store.repairCompatibility(install.id, referenceID: reference.id, progress: self.progressHandler()); self.message = "Compatibility files verified and repaired." }
@@ -149,12 +163,14 @@ final class AppModel: ObservableObject {
         guard let store else { return }
         await perform { try await store.remove(install.id, removeEnvironment: removeEnvironment); try await self.diagnostics?.record(.versionRemoved) }
     }
-    func accountOperation(_ command: NativeAccount.Command) async {
+    func accountOperation(_ command: NativeAccount.Command, game: GameDefinition? = nil) async {
+        let game = game ?? selectedGame
         // Clear old ownership evidence immediately, including after a failed new check.
-        account = nil; error = nil
+        accounts[game] = nil; error = nil
         await perform {
             self.progress = .init(command == .login ? "Waiting for Microsoft sign-in" : "Checking Microsoft account")
-            self.account = try await self.nativeAccount.request(command)
+            self.accounts[game] = try await self.nativeAccount.request(command, game: game)
+            if command == .logout { self.accounts.removeAll() }
         }
     }
     func exportDiagnostics() {
