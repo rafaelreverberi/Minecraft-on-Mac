@@ -52,7 +52,7 @@ A full fresh download, persistent decryption, dedicated environment and real-acc
 
 ## Build and test
 
-End users should download the release. Builders need Xcode/Swift 6, Python 3, Rust/rustup, protobuf `protoc`, an x86_64 MinGW compiler and the official GDK 2504.6 XCurl headers. Install the Windows Rust target with `rustup target add x86_64-pc-windows-gnu`. Set `MML_XCURL_INCLUDE` to the directory containing the official `XCurl.h`; no SDK headers or binaries are vendored.
+End users should download the release. Builders need an Apple Silicon build host, Xcode/Swift 6, Python 3, Rust/rustup, protobuf `protoc`, an x86_64 MinGW compiler and the official GDK 2504.6 XCurl headers. Install the Windows Rust target with `rustup target add x86_64-pc-windows-gnu`. Set `MML_XCURL_INCLUDE` to the directory containing the official `XCurl.h`; no SDK headers or binaries are vendored.
 
 ```sh
 swift test

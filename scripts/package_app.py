@@ -24,6 +24,7 @@ for resource in bin_dir.glob('*.bundle'):
 notices=app/'Contents/Resources/Notices';notices.mkdir()
 for source,name in [('LICENSE','LICENSE'),('docs/VENDOR.md','VENDOR.md'),('docs/MANAGED-INSTALLATION.md','MANAGED-INSTALLATION.md'),('Compatibility/Runtime/LICENSE','Runtime-MIT-LICENSE'),('Compatibility/XCurl/LICENSE','XCurl-MIT-LICENSE')]:
  shutil.copy2(root/source,notices/name)
+subprocess.run(['python3',str(root/'scripts/collect_notices.py'),str(notices)],check=True)
 # Xcode's SwiftPM engine produces resource .bundle directories alongside executable.
 info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.2.1','CFBundleVersion':'3','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
 (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
