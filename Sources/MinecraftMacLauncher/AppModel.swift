@@ -42,7 +42,7 @@ final class AppModel: ObservableObject {
     }
     func refresh() async {
         if let store { database = await store.snapshot(); staging = await store.staleStaging() }
-        crossOver = CrossOver.detect()
+        crossOver = CrossOver.detect(); running = CrossOver.gameRunning()
     }
     func progressHandler() -> @Sendable (OperationProgress) -> Void {
         { [weak self] update in Task { @MainActor in if let self, self.busy { self.progress = update } } }
@@ -70,7 +70,7 @@ final class AppModel: ObservableObject {
             try await self.diagnostics?.record(.installationVerified)
         }
         guard error == nil, database.installations.first(where: { $0.id == current.id })?.state == .ready else { return }
-        running = true; defer { running = false }
+        running = true; defer { running = CrossOver.gameRunning() }
         do {
             try await diagnostics?.record(.launchStarted)
             let exit = try await processes.launch(current, crossOver: crossOver)

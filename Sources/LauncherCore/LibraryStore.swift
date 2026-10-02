@@ -6,6 +6,7 @@ public actor LibraryStore {
     private let profile: CompatibilityProfile
     private let crossOver: CrossOver?
     private let runtimeTests: Bool
+    private let isGameRunning: @Sendable () -> Bool
     private var database: LibraryDatabase
     private var busy = false
     private var lockFD: Int32 = -1
@@ -14,8 +15,8 @@ public actor LibraryStore {
     public static var defaultRoot: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Minecraft on Mac")
     }
-    public init(root: URL = LibraryStore.defaultRoot, profile: CompatibilityProfile? = nil, crossOver: CrossOver? = .detect(), runtimeTests: Bool = true) throws {
-        self.root = root; self.profile = try profile ?? .bundled(); self.crossOver = crossOver; self.runtimeTests = runtimeTests
+    public init(root: URL = LibraryStore.defaultRoot, profile: CompatibilityProfile? = nil, crossOver: CrossOver? = .detect(), runtimeTests: Bool = true, isGameRunning: @escaping @Sendable () -> Bool = { CrossOver.gameRunning() }) throws {
+        self.root = root; self.profile = try profile ?? .bundled(); self.crossOver = crossOver; self.runtimeTests = runtimeTests; self.isGameRunning = isGameRunning
         _ = try FileSafety.child("library.json", of: root)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let fd = Darwin.open(root.appendingPathComponent(".library-lock").path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
@@ -49,7 +50,7 @@ public actor LibraryStore {
     private var versionsRoot: URL { root.appendingPathComponent("Games/dungeons2/Versions") }
     private func checkIdle() throws {
         guard !busy else { throw LauncherError("OPERATION_BUSY", "A library operation is in progress.") }
-        guard !CrossOver.gameRunning() else { throw LauncherError("GAME_RUNNING", "Quit Dungeons before changing the library.") }
+        guard !isGameRunning() else { throw LauncherError("GAME_RUNNING", "Quit Dungeons before changing the library.") }
     }
     private func persist(_ next: LibraryDatabase) throws {
         _ = try FileSafety.child("library.json", of: root)

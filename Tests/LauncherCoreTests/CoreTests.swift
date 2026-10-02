@@ -52,22 +52,22 @@ final class CoreTests: XCTestCase {
         let db = LibraryDatabase()
         try FileSafety.write(db, to: root.appendingPathComponent("library.json"))
         do {
-            let store = try LibraryStore(root: root)
+            let store = try LibraryStore(root: root, isGameRunning: { false })
             let result = await store.snapshot(); XCTAssertNil(result.current); XCTAssertTrue(result.installations.isEmpty)
             let invalid = Installation(version: "2.0.0.0", path: root.appendingPathComponent("missing"), bottle: "missing", managed: false)
             do { _ = try await store.verify(invalid); XCTFail("Unknown or missing build accepted") } catch {}
         }
         try Data("malformed".utf8).write(to: root.appendingPathComponent("library.json"))
-        XCTAssertThrowsError(try LibraryStore(root: root))
+        XCTAssertThrowsError(try LibraryStore(root: root, isGameRunning: { false }))
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("library.json"), encoding: .utf8), "malformed")
     }
     func testLibraryExclusiveWriterLock() throws {
         let root = try temp()
-        let first = try LibraryStore(root: root)
-        try withExtendedLifetime(first) { XCTAssertThrowsError(try LibraryStore(root: root)) }
+        let first = try LibraryStore(root: root, isGameRunning: { false })
+        try withExtendedLifetime(first) { XCTAssertThrowsError(try LibraryStore(root: root, isGameRunning: { false })) }
     }
     func testUntrustedStagingCleanupAndCacheSymlinkRejected() async throws {
-        let root = try temp(); let store = try LibraryStore(root: root)
+        let root = try temp(); let store = try LibraryStore(root: root, isGameRunning: { false })
         do { try await store.removeStaging(".staging-../../game"); XCTFail("Traversal accepted") } catch {}
         let staging = root.appendingPathComponent("Games/dungeons2/Versions/.staging-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -114,7 +114,7 @@ final class CoreTests: XCTestCase {
     }
     func testManagedSnapshotRollbackRepairAndRemovalPreserveReference() async throws {
         let (root, game, crossover, profile) = try fakeReference()
-        let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false)
+        let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false, isGameRunning: { false })
         let original = try await store.registerExternal(game, bottle: "TestBottle")
         let copy = try await store.clone(original.id)
         var db = await store.snapshot(); XCTAssertEqual(db.current, original.id); XCTAssertEqual(db.installations.count, 2)
@@ -135,7 +135,7 @@ final class CoreTests: XCTestCase {
     }
     func testUnknownVersionCannotReplaceCurrent() async throws {
         let (root, game, crossover, profile) = try fakeReference()
-        let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false)
+        let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false, isGameRunning: { false })
         let original = try await store.registerExternal(game, bottle: "TestBottle")
         let config = game.appendingPathComponent("MicrosoftGame.config")
         let valid = try Data(contentsOf: config)
@@ -178,13 +178,24 @@ final class CoreTests: XCTestCase {
     }
 
     func testCacheCleanupDeletesOnlyUnchangedReceiptedFiles() async throws {
-        let root = try temp(); let store = try LibraryStore(root: root)
+        let root = try temp(); let store = try LibraryStore(root: root, isGameRunning: { false })
         let cache = root.appendingPathComponent("Cache"), file = cache.appendingPathComponent("download.bin")
         try Data("owned package fixture".utf8).write(to: file)
         do { try await store.clearCache(); XCTFail("Untracked file deleted") } catch {}
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
         try FileSafety.write(["download.bin": FileSafety.hash(file)], to: root.appendingPathComponent("cache-manifest.json"))
         try await store.clearCache(); XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testRunningGameBlocksMutationBeforeTouchingReference() async throws {
+        let (root, game, crossover, profile) = try fakeReference()
+        let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false, isGameRunning: { true })
+        let before = try FileSafety.hash(game.appendingPathComponent("MicrosoftGame.config"))
+        do { _ = try await store.registerExternal(game, bottle: "TestBottle"); XCTFail("Running-game guard bypassed") } catch {
+            XCTAssertEqual((error as? LauncherError)?.code, "GAME_RUNNING")
+        }
+        XCTAssertEqual(try FileSafety.hash(game.appendingPathComponent("MicrosoftGame.config")), before)
+        let db = await store.snapshot(); XCTAssertTrue(db.installations.isEmpty)
     }
 
 }
