@@ -8,6 +8,9 @@ final class AppModel: ObservableObject {
     @Published var crossOver = CrossOver.detect()
     @Published var progress: OperationProgress?
     @Published var error: LauncherError?
+    @Published var runningGames: Set<GameDefinition> = []
+    @Published var quittingGame: GameDefinition?
+    private var requestedQuit: GameDefinition?
     @Published var running = false
     @Published var busy = false
     @Published var message = ""
@@ -50,6 +53,7 @@ final class AppModel: ObservableObject {
     func refresh() async {
         if let store { database = await store.snapshot(); staging = await store.staleStaging() }
         crossOver = CrossOver.detect(); running = CrossOver.gameRunning()
+        runningGames = GameTermination.runningGames(installations: database.installations, crossOver: crossOver)
     }
     func progressHandler() -> @Sendable (OperationProgress) -> Void {
         { [weak self] update in Task { @MainActor in if let self, self.busy { self.progress = update } } }
@@ -91,15 +95,46 @@ final class AppModel: ObservableObject {
             try await self.diagnostics?.record(.installationVerified)
         }
         guard error == nil, database.installations.first(where: { $0.id == current.id })?.state == .ready else { return }
-        running = true; defer { running = CrossOver.gameRunning() }
+        requestedQuit = nil
+        running = true; runningGames.insert(game)
+        defer {
+            running = CrossOver.gameRunning()
+            runningGames = GameTermination.runningGames(installations: database.installations, crossOver: crossOver)
+            if requestedQuit == game { requestedQuit = nil }
+        }
         do {
             try await diagnostics?.record(.launchStarted)
             let exit = try await processes.launch(current, crossOver: crossOver)
             try await diagnostics?.record(.launchExited, exitCode: exit)
-            message = "CrossOver launch process exited with status \(exit)."
-            if exit != 0 { error = LauncherError("GAME_EXITED", "The CrossOver launch process exited with status \(exit).", recovery: "Review Diagnostics and check the game in CrossOver.") }
+            message = requestedQuit == game ? "Game stopped." : "CrossOver launch process exited with status \(exit)."
+            if exit != 0 && requestedQuit != game { error = LauncherError("GAME_EXITED", "The CrossOver launch process exited with status \(exit).", recovery: "Review Diagnostics and check the game in CrossOver.") }
         } catch { self.error = error as? LauncherError ?? LauncherError("LAUNCH_FAILED", "The game could not start.") }
     }
+    func quitGame(_ game: GameDefinition) async {
+        guard quittingGame == nil, let crossOver else { return }
+        quittingGame = game; requestedQuit = game
+        defer { quittingGame = nil }
+        let installations = database.installations
+        do {
+            try await Task.detached {
+                try GameTermination.forceQuit(game: game, installations: installations, crossOver: crossOver)
+            }.value
+            // Allow Wine's child exit and the launcher's account-service cleanup to finish.
+            for _ in 0..<20 {
+                await refresh()
+                if !runningGames.contains(game) { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if runningGames.contains(game) {
+                error = LauncherError("GAME_QUIT_INCOMPLETE", "The game is still exiting.", recovery: "Refresh and retry if it remains unresponsive.")
+            } else { message = "Game stopped." }
+        } catch {
+            requestedQuit = nil
+            self.error = error as? LauncherError ?? LauncherError("GAME_QUIT_FAILED", "The game could not be stopped.")
+            await refresh()
+        }
+    }
+
     func installAndPlay(game: GameDefinition? = nil, launch: Bool = true) async {
         let game = game ?? selectedGame
         crossOver = CrossOver.detect()

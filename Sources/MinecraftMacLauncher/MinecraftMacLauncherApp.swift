@@ -12,10 +12,10 @@ struct MinecraftMacLauncherApp: App {
     }
 }
 enum Page: String, CaseIterable, Identifiable {
-    case dungeons = "Minecraft Dungeons II", bedrock = "Minecraft: Bedrock", downloads = "Downloads", versions = "Versions", settings = "Settings", diagnostics = "Diagnostics"
+    case dungeons = "Dungeons II", bedrock = "Bedrock Edition", settings = "Settings"
     var id: Self { self }
     var symbol: String {
-        switch self { case .dungeons: "shield.lefthalf.filled"; case .bedrock: "cube.fill"; case .downloads: "arrow.down.circle"; case .versions: "clock.arrow.circlepath"; case .settings: "gearshape"; case .diagnostics: "waveform.path.ecg" }
+        switch self { case .dungeons: "shield.lefthalf.filled"; case .bedrock: "cube.fill"; case .settings: "gearshape" }
     }
 }
 struct LauncherView: View {
@@ -23,15 +23,19 @@ struct LauncherView: View {
     @State private var page: Page? = ProcessInfo.processInfo.arguments.contains("--setup-bedrock") ? .bedrock : .dungeons
     var body: some View {
         NavigationSplitView {
+            VStack(spacing: 0) {
             List(selection: $page) {
                 Section("Games") { row(.dungeons); row(.bedrock) }
-                Section("Library") { row(.downloads); row(.versions) }
-                Section { row(.settings); row(.diagnostics) }
+                Section { row(.settings) }
             }.listStyle(.sidebar)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Minecraft on Mac").font(.headline)
-                Text("Development preview • Apple Silicon").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Image(nsImage: LauncherArtwork.image("launcher-mac")).resizable().frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Minecraft on Mac").font(.system(size: 12, weight: .semibold))
+                    Text("Unofficial launcher").font(.system(size: 10)).foregroundStyle(.secondary)
+                }
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
+            }.navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 270)
         } detail: {
             VStack(spacing: 0) {
                 ScrollView {
@@ -39,12 +43,9 @@ struct LauncherView: View {
                         switch page ?? .dungeons {
                         case .dungeons: DungeonsView()
                         case .bedrock: BedrockView()
-                        case .versions: VersionsView()
-                        case .downloads: DownloadsView()
-                        case .settings: SettingsView()
-                        case .diagnostics: DiagnosticsView()
+                        case .settings: SettingsView().padding(30)
                         }
-                    }.padding(30).frame(maxWidth: 1050, alignment: .leading)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let progress = model.progress {
                     VStack(alignment: .leading, spacing: 8) {
@@ -55,7 +56,7 @@ struct LauncherView: View {
                 }
                 if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity, alignment: .leading) }
             }.background(Color(nsColor: .windowBackgroundColor))
-        }.navigationSplitViewColumnWidth(min: 220, ideal: 245)
+        }
         .onChange(of: page, initial: true) { _, value in
             if value == .bedrock { model.selectedGame = .bedrock }
             else if value == .dungeons { model.selectedGame = .dungeons2 }
@@ -66,126 +67,159 @@ struct LauncherView: View {
             Button("Copy Details") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.error?.errorDescription ?? "", forType: .string) }
         } message: { Text(model.error?.errorDescription ?? "") }
     }
-    func row(_ page: Page) -> some View { Label(page.rawValue, systemImage: page.symbol).tag(page) }
+    func row(_ page: Page) -> some View {
+        HStack(spacing: 12) {
+            if page == .settings {
+                Image(systemName: page.symbol).frame(width: 28)
+            } else {
+                Image(nsImage: LauncherArtwork.image(page == .bedrock ? "bedrock" : "dungeons", extension: "jpg"))
+                    .resizable().scaledToFill().frame(width: 28, height: 28).clipShape(RoundedRectangle(cornerRadius: 5))
+            }
+            Text(page.rawValue).font(.system(size: 13, weight: .medium))
+            Spacer(minLength: 0)
+        }.padding(.vertical, 6).tag(page)
+    }
 }
 struct DungeonsView: View {
-    @EnvironmentObject var model: AppModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [Color(red: 0.10, green: 0.26, blue: 0.20), Color(red: 0.06, green: 0.10, blue: 0.15)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: "shield.lefthalf.filled").font(.system(size: 150)).foregroundStyle(.white.opacity(0.09)).frame(maxWidth: .infinity, alignment: .trailing).padding(40)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("YOUR ADVENTURE, ON MAC").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(.white.opacity(0.7))
-                    Text("Minecraft\nDungeons II").font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                    Text("Local compatibility • CrossOver").foregroundStyle(.white.opacity(0.8))
-                }.padding(30)
-            }.frame(height: 250).clipShape(RoundedRectangle(cornerRadius: 16))
-            if let install = model.current(for: .dungeons2) {
-                HStack(alignment: .top, spacing: 24) {
-                    metric("Installed", "Version \(install.version)", "shippingbox")
-                    metric("Compatibility", install.state == .ready ? "Files and runtime verified" : "Needs verification", "checkmark.shield")
-                    metric("Storage", ByteCountFormatter.string(fromByteCount: install.diskBytes, countStyle: .file), "internaldrive")
-                }
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 8) {
-                        LabeledContent("CrossOver bottle", value: install.bottle)
-                        LabeledContent("Account", value: install.compatibilityProfile.hasPrefix("dungeons2-managed-") ? (model.accounts[.dungeons2]?.gamertag ?? "Microsoft • macOS Keychain") : "Existing game login")
-                        LabeledContent("Available version", value: model.accounts[.dungeons2]?.availableVersion ?? "Not checked")
-                        LabeledContent("Installation", value: install.managed ? "Launcher-managed snapshot" : "External reference · protected")
-                    }.padding(8)
-                }
-                HStack(spacing: 12) {
-                    Button { Task { await model.play(game: .dungeons2) } } label: { Label(model.running ? "Game running" : "Play", systemImage: "play.fill").padding(.horizontal, 24).padding(.vertical, 5) }
-                        .buttonStyle(.borderedProminent).tint(Color(red: 0.16, green: 0.49, blue: 0.30)).disabled(model.busy || model.running)
-                    Button("Verify") { Task { await model.verify(install) } }.disabled(model.busy || model.running)
-                    Button("Repair") { Task { await model.repair(install) } }.disabled(!install.managed || model.busy || model.running)
-                    Button("Open Folder") { model.open(install.path) }
-                }
-                Text("Reference launch preserves the existing Microsoft/Xbox login. File checks do not establish entitlement or validate gameplay, saves and multiplayer.").font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("Sign in and play").font(.title2.bold())
-                Text("Sign in with your Microsoft account. The launcher verifies your game license, downloads the game and components, and creates its CrossOver environment.").foregroundStyle(.secondary)
-                BottlePicker()
-                Button("Choose Installation…") { model.chooseInstallation() }.buttonStyle(.borderedProminent).disabled(model.busy || model.selectedBottle.isEmpty)
-            }
-            AccountView(game: .dungeons2)
-            GroupBox("Automatic installation") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Game downloads, compatibility components and the game environment are managed automatically. CrossOver must be installed and licensed. Allow at least 35 GB free during setup.").font(.callout).foregroundStyle(.secondary)
-                    HStack {
-                        Button(model.current(for: .dungeons2) == nil ? "Sign In, Install & Play" : "Install a Fresh Managed Copy") { Task { await model.installAndPlay(game: .dungeons2) } }.buttonStyle(.borderedProminent)
-                        if model.current(for: .dungeons2) != nil { Button("Check for Updates") { Task { await model.checkUpdates(game: .dungeons2) } } }
-                    }.disabled(model.busy || model.running)
-                    Text("Installation downloads Microsoft runtime components under their publisher's license terms.").font(.caption).foregroundStyle(.secondary)
-                    Link("Microsoft GDK license", destination: URL(string: "https://github.com/microsoft/GDK/blob/main/LICENSE.md")!)
-                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-    func metric(_ label: String, _ value: String, _ icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) { Label(label, systemImage: icon).font(.caption).foregroundStyle(.secondary); Text(value).font(.headline) }.frame(maxWidth: .infinity, alignment: .leading)
-    }
+    var body: some View { GameView(game: .dungeons2) }
 }
 struct BedrockView: View {
+    var body: some View { GameView(game: .bedrock) }
+}
+
+enum LauncherArtwork {
+    static func image(_ name: String, extension ext: String = "png") -> NSImage {
+        guard let url = Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Resources/Artwork"),
+              let image = NSImage(contentsOf: url) else { return NSImage(size: NSSize(width: 1, height: 1)) }
+        return image
+    }
+    static let accent = Color(red: 0.32, green: 0.68, blue: 0.25)
+}
+
+struct GameView: View {
+    let game: GameDefinition
+    @EnvironmentObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var advanced = false
+    @State private var versions = false
+    private var installations: [Installation] { model.database.installations.filter { $0.game == game } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GeometryReader { geometry in
+                Image(nsImage: LauncherArtwork.image(game == .bedrock ? "bedrock" : "dungeons", extension: "jpg"))
+                    .resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height, alignment: .top).clipped()
+                    .overlay {
+                        ZStack(alignment: .bottomLeading) {
+                        LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("MINECRAFT ON MAC").font(.system(size: 11, weight: .bold)).tracking(3).foregroundStyle(.white.opacity(0.8))
+                            Text(game == .bedrock ? "Minecraft" : "Minecraft Dungeons II")
+                                .font(.system(size: game == .bedrock ? 44 : 34, weight: .heavy)).foregroundStyle(.white)
+                            Text(game == .bedrock ? "BEDROCK EDITION" : "WINDOWS EDITION")
+                                .font(.system(size: 12, weight: .semibold)).tracking(2).foregroundStyle(.white.opacity(0.85))
+                        }.padding(30).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+            }.aspectRatio(2.2, contentMode: .fit).accessibilityLabel(game.name)
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 20) {
+                    if !installations.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("SELECT VERSION").font(.system(size: 10, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                            Picker("Select version", selection: Binding<UUID?>(get: { model.current(for: game)?.id }, set: { id in
+                                if let install = installations.first(where: { $0.id == id }) { Task { await model.select(install) } }
+                            })) {
+                                if model.current(for: game) == nil { Text("Choose a version").tag(nil as UUID?) }
+                                ForEach(installations) { item in
+                                    Text("\(item.version) · \(item.displayKind) · \(item.id.uuidString.prefix(4))").tag(Optional(item.id)).disabled(item.state != .ready)
+                                }
+                            }.labelsHidden().frame(maxWidth: 320).disabled(model.busy || model.running)
+                        }
+                        Spacer(minLength: 0)
+                        VStack(alignment: .trailing, spacing: 5) {
+                            Text(model.current(for: game).map { $0.state == .ready ? "Ready to play" : "Verification needed" } ?? "Choose a version").font(.callout.weight(.medium))
+                            Text(model.accounts[game]?.gamertag ?? "Microsoft account").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Install \(game == .bedrock ? "Bedrock Edition" : "Dungeons II")").font(.title3.bold())
+                            Text("Sign in to download your game and set up CrossOver automatically.").font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    Button { Task {
+                        if model.current(for: game) != nil { await model.play(game: game) }
+                        else { await model.installAndPlay(game: game) }
+                    } } label: {
+                        Label(model.runningGames.contains(game) ? "Game running" : model.current(for: game) == nil ? "Install & Play" : "Play", systemImage: "play.fill")
+                            .font(.system(size: 16, weight: .bold)).frame(minWidth: 125).padding(.vertical, 9)
+                    }.buttonStyle(.borderedProminent).tint(LauncherArtwork.accent)
+                        .disabled(model.busy || model.running)
+                    if model.runningGames.contains(game) {
+                        Button { Task { await model.quitGame(game) } } label: {
+                            Image(systemName: "xmark").font(.system(size: 14, weight: .bold))
+                                .frame(width: 22, height: 22).padding(.vertical, 9)
+                        }.buttonStyle(.borderedProminent).tint(.red)
+                            .disabled(model.quittingGame != nil)
+                            .help("Force quit this game. Unsaved progress will be lost.")
+                            .accessibilityLabel("Force quit \(game.name)")
+                    }
+                }
+                if model.current(for: game) == nil {
+                    Label("Requires licensed CrossOver, game ownership and 35 GB of free space.", systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Divider()
+                HStack {
+                    Button { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { versions.toggle() } } label: {
+                        Label("Versions", systemImage: "square.stack.3d.up")
+                    }.buttonStyle(.bordered)
+                    Text("\(installations.count) installed").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { advanced.toggle() } } label: {
+                        Label("Advanced", systemImage: advanced ? "chevron.up" : "chevron.down")
+                    }.buttonStyle(.borderless).foregroundStyle(.secondary)
+                }
+                if versions { VersionsView(game: game).transition(.opacity.combined(with: .move(edge: .top))) }
+                if advanced {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Game settings & maintenance").font(.title3.bold())
+                        if let install = model.current(for: game) {
+                            HStack {
+                                Button("Verify Files") { Task { await model.verify(install) } }.disabled(model.busy || model.running)
+                                Button("Repair") { Task { await model.repair(install) } }.disabled(!install.managed || model.busy || model.running)
+                                Button("Open Folder") { model.open(install.path) }
+                            }.buttonStyle(.bordered)
+                            LabeledContent("Environment", value: install.bottle)
+                            LabeledContent("Storage", value: ByteCountFormatter.string(fromByteCount: install.storageBytes ?? install.diskBytes, countStyle: .file))
+                            Text(install.path.path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        HStack {
+                            Button("Install a Fresh Copy") { Task { await model.installAndPlay(game: game) } }
+                            Button("Check for Updates") { Task { await model.checkUpdates(game: game) } }
+                        }.disabled(model.busy || model.running)
+                        AccountView(game: game)
+                        if game == .bedrock {
+                            Text("Bedrock 1.26.5203.0 · CrossOver 26.3.x · D3DMetal").font(.caption).foregroundStyle(.secondary)
+                            Text("Back up worlds before changing versions. Choosing an older game version does not restore world data.").font(.callout).foregroundStyle(.secondary)
+                            BedrockStorageView()
+                        }
+                        Text("File verification checks the installation and runtime. Gameplay, saves and multiplayer require separate live testing.").font(.caption).foregroundStyle(.secondary)
+                        Link("Microsoft GDK license", destination: URL(string: "https://github.com/microsoft/GDK/blob/main/LICENSE.md")!)
+                    }.transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                Text("Unofficial launcher · Not affiliated with Mojang or Microsoft").font(.system(size: 10)).foregroundStyle(.tertiary)
+            }.padding(28)
+        }.id(game)
+    }
+}
+struct BedrockStorageView: View {
     private let game: GameDefinition = .bedrock
     @EnvironmentObject var model: AppModel
     @State private var pendingEnvironment: String?
     @State private var pendingStaging: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: [Color(red: 0.10, green: 0.26, blue: 0.20), Color(red: 0.06, green: 0.10, blue: 0.15)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: "cube.fill").font(.system(size: 150)).foregroundStyle(.white.opacity(0.09)).frame(maxWidth: .infinity, alignment: .trailing).padding(40)
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("YOUR ADVENTURE, ON MAC").font(.caption.weight(.semibold)).tracking(2).foregroundStyle(.white.opacity(0.7))
-                    Text(game.name).font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                    Text("Local compatibility • CrossOver").foregroundStyle(.white.opacity(0.8))
-                }.padding(30)
-            }.frame(height: 250).clipShape(RoundedRectangle(cornerRadius: 16))
-            if let install = model.current(for: game) {
-                HStack(alignment: .top, spacing: 24) {
-                    metric("Installed", "Version \(install.version)", "shippingbox")
-                    metric("Compatibility", install.state == .ready ? "Files and runtime verified" : "Needs verification", "checkmark.shield")
-                    metric("Storage", ByteCountFormatter.string(fromByteCount: install.diskBytes, countStyle: .file), "internaldrive")
-                }
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 8) {
-                        LabeledContent("CrossOver bottle", value: install.bottle)
-                        LabeledContent("Account", value: install.isOfficialManaged ? (model.accounts[game]?.gamertag ?? "Microsoft • macOS Keychain") : "Existing game login")
-                        LabeledContent("Available version", value: model.accounts[game]?.availableVersion ?? "Not checked")
-                        LabeledContent("Installation", value: install.isOfficialManaged ? "Launcher-managed official Microsoft package" : install.displayKind)
-                    }.padding(8)
-                }
-                HStack(spacing: 12) {
-                    Button { Task { await model.play(game: game) } } label: { Label(model.running ? "Game running" : "Play", systemImage: "play.fill").padding(.horizontal, 24).padding(.vertical, 5) }
-                        .buttonStyle(.borderedProminent).tint(Color(red: 0.16, green: 0.49, blue: 0.30)).disabled(model.busy || model.running)
-                    Button("Verify") { Task { await model.verify(install) } }.disabled(model.busy || model.running)
-                    Button("Repair") { Task { await model.repair(install) } }.disabled(!install.managed || model.busy || model.running)
-                    Button("Open Folder") { model.open(install.path) }
-                }
-                Text("Reference launch preserves the existing Microsoft/Xbox login. File checks do not establish entitlement or validate gameplay, saves and multiplayer.").font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("Sign in and play").font(.title2.bold())
-                Text("Sign in with your Microsoft account. The launcher verifies your game license, downloads the game and components, and creates its CrossOver environment.").foregroundStyle(.secondary)
-            }
-            Group {
-                Text("Bedrock 1.26.5203.0 • CrossOver 26.3.x • Apple silicon • D3DMetal").font(.caption).foregroundStyle(.secondary)
-                Text("Game files are decrypted once during installation for persistent SSD use. Worlds live in the owned CrossOver environment. A newer build may upgrade worlds; selecting an older executable does not restore world data. Back up worlds before launching a new version.").font(.callout).foregroundStyle(.secondary)
-                if let install = model.current(for: game) { Text(install.path.path).font(.caption.monospaced()).textSelection(.enabled) }
-            }
-            AccountView(game: .bedrock)
-            GroupBox("Automatic installation") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Game downloads, compatibility components and the game environment are managed automatically. CrossOver must be installed and licensed. Allow at least 35 GB free during setup.").font(.callout).foregroundStyle(.secondary)
-                    HStack {
-                        Button(model.current(for: game) == nil ? "Sign In, Install & Play" : "Install a Fresh Managed Copy") { Task { await model.installAndPlay(game: game) } }.buttonStyle(.borderedProminent)
-                        if model.current(for: game) != nil { Button("Check for Updates") { Task { await model.checkUpdates(game: game) } } }
-                    }.disabled(model.busy || model.running)
-                    Text("Installation downloads Microsoft runtime components under their publisher's license terms.").font(.caption).foregroundStyle(.secondary)
-                    Link("Microsoft GDK license", destination: URL(string: "https://github.com/microsoft/GDK/blob/main/LICENSE.md")!)
-                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
-            }
+        VStack(alignment: .leading, spacing: 16) {
             GroupBox("Bedrock storage and environment") {
                 VStack(alignment: .leading, spacing: 10) {
                     Button("Open Bedrock Data") { model.open(LibraryStore.defaultRoot.appendingPathComponent("Games/bedrock")) }
@@ -207,9 +241,6 @@ struct BedrockView: View {
             if let name = pendingStaging { Button("Delete Temporary Files", role: .destructive) { Task { await model.perform { try await model.store?.removeStaging(name) } }; pendingStaging = nil } }
         }
     }
-    func metric(_ label: String, _ value: String, _ icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) { Label(label, systemImage: icon).font(.caption).foregroundStyle(.secondary); Text(value).font(.headline) }.frame(maxWidth: .infinity, alignment: .leading)
-    }
 }
 struct BottlePicker: View {
     @EnvironmentObject var model: AppModel
@@ -221,6 +252,7 @@ struct BottlePicker: View {
     }
 }
 struct VersionsView: View {
+    let game: GameDefinition
     @EnvironmentObject var model: AppModel
     @State private var pendingRemoval: Installation?
     @State private var removeEnvironment = false
@@ -228,9 +260,9 @@ struct VersionsView: View {
     @State private var clearCurrent = false
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Versions").font(.largeTitle.bold())
-            Text("Installed game copies, not launcher bundles. Current marks the copy used by Start Game.").foregroundStyle(.secondary)
-            ForEach(model.database.installations) { install in
+            Text("Versions").font(.title2.bold())
+            Text("Choose the installation used by Play. Each game keeps its own selection.").foregroundStyle(.secondary)
+            ForEach(model.database.installations.filter { $0.game == game }) { install in
                 GroupBox {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -239,32 +271,45 @@ struct VersionsView: View {
                             Spacer(); Text(install.displayKind).foregroundStyle(.secondary)
                         }
                         Text("\(ByteCountFormatter.string(fromByteCount: install.storageBytes ?? install.diskBytes, countStyle: .file)) of files • \(install.state.rawValue)").font(.callout).foregroundStyle(.secondary)
-                        Text(install.managed ? "This launcher manages this copy. Version deletion includes its downloaded component cache." : "Your original local copy. Removing this entry only unregisters it; its files stay intact.").font(.callout).foregroundStyle(.secondary)
-                        Text(install.path.path).font(.caption.monospaced()).textSelection(.enabled)
-                        Button("Show in Finder") { NSWorkspace.shared.open(install.managed ? install.path.deletingLastPathComponent() : install.path) }
-                        DisclosureGroup("Game environment") {
-                            Text(install.bottle).font(.caption.monospaced()).textSelection(.enabled)
-                            Text("The CrossOver environment stores prerequisites and account-specific saves separately from game versions.").font(.caption).foregroundStyle(.secondary)
-                        }
                         HStack {
-                            Button("Use") { Task { await model.select(install) } }.disabled(install.id == model.database.currentByGameId[install.gameId] || install.state != .ready)
-                            Button("Verify") { Task { await model.verify(install) } }
-                            Button("Create Snapshot…") { cloneConfirmation = install }
-                            Button(install.managed ? "Delete Version…" : "Unregister…", role: .destructive) { removeEnvironment = false; pendingRemoval = install }
+                            Button("Use This Version") { Task { await model.select(install) } }
+                                .disabled(install.id == model.database.currentByGameId[install.gameId] || install.state != .ready)
+                            Spacer()
+                            Menu {
+                                Button("Show in Finder") { NSWorkspace.shared.open(install.managed ? install.path.deletingLastPathComponent() : install.path) }
+                                Button("Verify Files") { Task { await model.verify(install) } }
+                                Button("Create Snapshot…") { cloneConfirmation = install }
+                                Divider()
+                                Button(install.managed ? "Delete Version…" : "Unregister…", role: .destructive) { removeEnvironment = false; pendingRemoval = install }
+                            } label: { Label("Manage", systemImage: "ellipsis") }
                         }.disabled(model.busy || model.running)
+                        DisclosureGroup("Installation details") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(install.managed ? "Deletion includes this version's files and component cache." : "External installation. Unregistering keeps the original files.")
+                                Text(install.path.path).font(.caption.monospaced()).textSelection(.enabled)
+                                LabeledContent("Environment", value: install.bottle)
+                            }.font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+                        }
                         if model.developerMode { Text(install.compatibilityProfile).font(.caption.monospaced()) }
                     }.padding(10)
                 }
             }
-            if model.database.installations.isEmpty { Text("No registered installations.").foregroundStyle(.secondary) }
-            BottlePicker()
-            HStack {
-                Button("Register Installation…") { model.chooseInstallation() }.disabled(model.busy || model.selectedBottle.isEmpty || model.running)
-                if let current = model.current {
-                    Button("Change Bottle") { Task { await model.perform { try await model.store?.changeBottle(current.id, bottle: model.selectedBottle) } } }.disabled(model.busy || model.running)
-                    Button("Clear Current Selection…") { clearCurrent = true }.disabled(model.busy || model.running)
-                }
+            if model.database.installations.filter({ $0.game == game }).isEmpty { Text("No registered installations.").foregroundStyle(.secondary) }
+            DisclosureGroup("Advanced version options") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if game == .dungeons2 {
+                        BottlePicker()
+                        Button("Register Existing Installation…") { model.chooseInstallation() }.disabled(model.busy || model.selectedBottle.isEmpty || model.running)
+                    }
+                    if let current = model.current(for: game) {
+                        if game == .dungeons2 {
+                            Button("Change Bottle") { Task { await model.perform { try await model.store?.changeBottle(current.id, bottle: model.selectedBottle) } } }.disabled(model.busy || model.running)
+                        }
+                        Button("Clear Current Selection…") { clearCurrent = true }.disabled(model.busy || model.running)
+                    }
+                }.padding(.top, 12)
             }
+
         }
         .sheet(item: $pendingRemoval) { install in
             VStack(alignment: .leading, spacing: 16) {
@@ -291,7 +336,7 @@ struct VersionsView: View {
             if let install = cloneConfirmation { Button("Clone and Verify") { Task { await model.clone(install) }; cloneConfirmation = nil } }
         } message: { Text("Copies this local installation using APFS copy-on-write and hashes all game files. This can take several minutes. Current selection stays available.") }
         .confirmationDialog("Clear current selection?", isPresented: $clearCurrent, titleVisibility: .visible) {
-            Button("Clear Selection") { Task { await model.perform { try await model.store?.clearSelection(game: model.selectedGame) } } }
+            Button("Clear Selection") { Task { await model.perform { try await model.store?.clearSelection(game: game) } } }
         } message: { Text("Play will be unavailable until you select another version. You can then remove the previous version.") }
     }
 }
@@ -336,6 +381,9 @@ struct SettingsView: View {
                         HStack { Text("Interrupted snapshot").font(.callout); Spacer(); Button("Delete Temporary Files…") { pendingStaging = name }.disabled(model.busy || model.running) }
                     }
                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            DisclosureGroup("Advanced") {
+                DiagnosticsView().padding(.vertical, 12)
             }
             Toggle("Developer Mode", isOn: $model.developerMode)
             GroupBox("Dependencies") {

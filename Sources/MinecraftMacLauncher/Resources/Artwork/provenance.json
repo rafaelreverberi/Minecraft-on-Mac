@@ -1,0 +1,24 @@
+{
+  "copyright": "Artwork and official launcher icon: Mojang / Microsoft. Not covered by the launcher GPL license. Unofficial project; no endorsement.",
+  "iconSource": "Official installed Minecraft Launcher, launcher.bundle/Contents/Resources/launcher.icns",
+  "assets": [
+    {
+      "file": "dungeons.jpg",
+      "source": "https://store-images.s-microsoft.com/image/apps.1020.14578966298260124.ac5059d8-7ee1-409a-8326-c91ad228baaf.a97b984e-8283-44f4-8b8f-f6949d38008f?w=1920&format=jpg",
+      "product": "Minecraft Dungeons II",
+      "sha256": "a84da7d902f56ee493462a7f68aa37d11ac8926eaa32a9f2924c3bd178ec7bd3"
+    },
+    {
+      "file": "bedrock.jpg",
+      "source": "https://store-images.s-microsoft.com/image/apps.608.13510798885735219.cf55aeca-e690-41e0-a88b-41b0e517a3be.c94e1bfa-1b68-4cf5-9954-f967168480b4?w=1920&format=jpg",
+      "product": "Minecraft for Windows",
+      "sha256": "6f072b53bfab8e4f0ae23658d3377bf10a232fd2d54c85f23c695fbf622e3089"
+    }
+  ],
+  "iconEdit": {
+    "file": "launcher-mac.png",
+    "method": "Built-in imagegen precise-object-edit",
+    "description": "Official green Creeper launcher icon with blue desktop monitor badge for Minecraft on Mac. Original retained as launcher.png and Launcher.icns.",
+    "prompt": "Preserve official green Creeper icon; add only a small blue rounded-square badge with a white desktop monitor at bottom right; transparent background."
+  }
+}

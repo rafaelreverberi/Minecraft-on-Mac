@@ -59,7 +59,8 @@ for source,name in [('Compatibility/Bedrock/LICENSE','WineGDK-LGPL-LICENSE'),('d
  shutil.copy2(root/source,notices/name)
 subprocess.run(['python3',str(root/'scripts/collect_notices.py'),str(notices)],check=True)
 # Xcode's SwiftPM engine produces resource .bundle directories alongside executable.
-info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.2.1','CFBundleVersion':'3','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
+info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundleIconFile':'LauncherMac','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.3.0','CFBundleVersion':'4','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
+shutil.copy2(root/'Sources/MinecraftMacLauncher/Resources/Artwork/LauncherMac.icns',app/'Contents/Resources/LauncherMac.icns')
 (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)
