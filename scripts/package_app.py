@@ -3,6 +3,7 @@
 from pathlib import Path
 import subprocess, shutil, hashlib, plistlib, json, os
 root=Path(__file__).resolve().parents[1]
+subprocess.run(['python3',str(root/'scripts/build_bedrock.py')],check=True)
 helper_build=['cargo','build','--release','--locked','--manifest-path',str(root/'NativeHelper/Cargo.toml')]
 if os.environ.get('MML_BOOTSTRAP_PINS')=='1':raise SystemExit('Release packaging refuses the engineering bootstrap feature.')
 subprocess.run(helper_build,check=True)
@@ -22,7 +23,7 @@ shutil.copy2(helper,app/'Contents/Helpers/minecraft-native-helper')
 for resource in bin_dir.glob('*.bundle'):
  shutil.copytree(resource,app/'Contents/Resources'/resource.name)
 notices=app/'Contents/Resources/Notices';notices.mkdir()
-for source,name in [('LICENSE','LICENSE'),('docs/VENDOR.md','VENDOR.md'),('docs/MANAGED-INSTALLATION.md','MANAGED-INSTALLATION.md'),('Compatibility/Runtime/LICENSE','Runtime-MIT-LICENSE'),('Compatibility/XCurl/LICENSE','XCurl-MIT-LICENSE')]:
+for source,name in [('Compatibility/Bedrock/LICENSE','WineGDK-LGPL-LICENSE'),('docs/BEDROCK.md','BEDROCK.md'),('LICENSE','LICENSE'),('docs/VENDOR.md','VENDOR.md'),('docs/MANAGED-INSTALLATION.md','MANAGED-INSTALLATION.md'),('Compatibility/Runtime/LICENSE','Runtime-MIT-LICENSE'),('Compatibility/XCurl/LICENSE','XCurl-MIT-LICENSE')]:
  shutil.copy2(root/source,notices/name)
 subprocess.run(['python3',str(root/'scripts/collect_notices.py'),str(notices)],check=True)
 # Xcode's SwiftPM engine produces resource .bundle directories alongside executable.

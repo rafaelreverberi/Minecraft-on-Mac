@@ -24,7 +24,7 @@ public struct AccountStatus: Codable, Sendable {
               result.availableRevision.map({ UUID(uuidString: $0) != nil }) ?? true,
               result.errorCode.map({ allowedCodes.contains($0) }) ?? true,
               result.gamertag.map({ $0.utf8.count <= 256 && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }) ?? true,
-              result.availableVersion.map({ !$0.isEmpty && $0.count <= 64 && $0.allSatisfy { $0.isASCII && ($0.isNumber || $0 == ".") } }) ?? true,
+              result.availableVersion.map({ (try? PackageVersion($0)) != nil }) ?? true,
               result.entitlement != "verified" || (result.status == "ok" && result.signedIn && result.availableVersion != nil) else {
             throw LauncherError("HELPER_PROTOCOL_FAILED", "Account helper returned inconsistent data.")
         }
@@ -43,15 +43,24 @@ public actor NativeAccount {
               expected.count == 64, (try? FileSafety.hash(helper)) == expected else {
             throw LauncherError("HELPER_INTEGRITY_FAILED", "The native Microsoft helper is missing or differs from the bundled digest.", recovery: "Rebuild the app or restore a verified release. No credentials were accessed.")
         }
-        return helper
+        // One immutable, content-addressed identity for account client, service and broker.
+        let root = LibraryStore.defaultRoot
+        let stable = try FileSafety.child("Tools/accounts/" + expected + "/minecraft-native-helper", of: root)
+        if !FileManager.default.fileExists(atPath: stable.path) {
+            try FileManager.default.createDirectory(at: stable.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try FileManager.default.copyItem(at: helper, to: stable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: stable.path)
+        }
+        guard try FileSafety.hash(stable) == expected else { throw LauncherError("HELPER_INTEGRITY_FAILED", "Stable account helper changed.") }
+        return stable
     }
-    public func request(_ command: Command) async throws -> AccountStatus {
+    public func request(_ command: Command, game: GameDefinition = .dungeons2) async throws -> AccountStatus {
         guard !busy else { throw LauncherError("ACCOUNT_BUSY", "An account operation is already running.") }
         busy = true; defer { busy = false }
         let helper = try Self.helperURL()
         let data = try await Task.detached {
             let process = Process(); let pipe = Pipe()
-            process.executableURL = helper; process.arguments = [command.rawValue]
+            process.executableURL = helper; process.arguments = [command.rawValue, game.rawValue]
             process.environment = CrossOver.environment().filter { !["WINEDLLOVERRIDES", "WINEDEBUG", "XCURL_COMPAT_IDENTITY"].contains($0.key) }
             process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
             try process.run()
@@ -74,7 +83,7 @@ public actor NativeAccount {
             let code = status.errorCode ?? "MICROSOFT_SERVICE_FAILED"
             let message: String
             switch code {
-            case "ENTITLEMENT_NOT_CONFIRMED": message = "Microsoft did not confirm a content license for Dungeons II. No game data was downloaded."
+            case "ENTITLEMENT_NOT_CONFIRMED": message = "Microsoft did not confirm a content license for \(game.name). No game data was downloaded."
             case "SIGN_IN_REQUIRED", "LOGIN_CANCELLED": message = "Microsoft sign-in is required or was cancelled."
             case "KEYCHAIN_UNAVAILABLE": message = "The macOS Keychain is unavailable."
             default: message = "The Microsoft service could not complete this operation."

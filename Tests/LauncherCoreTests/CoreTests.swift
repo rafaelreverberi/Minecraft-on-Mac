@@ -86,7 +86,7 @@ final class CoreTests: XCTestCase {
         for forbidden in [root.path, "username", "gamertag", "token", "Authorization", "XUID", "cookie"] { XCTAssertFalse(text.contains(forbidden)) }
     }
     func testAdapterPlaceholderAndPinnedCatalog() throws {
-        XCTAssertFalse(BedrockAdapter().supported); XCTAssertNil(BedrockAdapter().executable)
+        XCTAssertTrue(BedrockAdapter().supported); XCTAssertEqual(BedrockAdapter().executable, "Minecraft.Windows.exe")
         XCTAssertEqual(Dungeons2Adapter().storeId, "9P5786PJB9RP")
         let profile = try CompatibilityProfile.bundled()
         XCTAssertEqual(profile.hashes.count, 6); XCTAssertEqual(profile.version, "1.1.1.0")

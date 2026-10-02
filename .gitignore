@@ -15,3 +15,5 @@ NativeHelper/target/
 
 Compatibility/Runtime/target/
 Shared/CredentialBridge/target/
+Compatibility/Bedrock/AccountService/target/
+Sources/LauncherCore/Resources/Bedrock/*.so

@@ -118,29 +118,38 @@ fn extract_nuget(archive:&Path,out:&Path)->Result<()> {
  let mut notice=z.by_name("LICENSE.md")?;if notice.size()>1024*1024{return Err(err())}
  let mut text=vec![];notice.read_to_end(&mut text)?;create(&out.join("Microsoft-GDK-LICENSE.md"))?.write_all(&text)?;Ok(())
 }
-pub async fn install(stage:&Path)->Result<()> {
+pub async fn install(stage:&Path,game_definition:crate::game::Game)->Result<()> {
  // Parent supplied a UUID staging directory. Never accept arbitrary pre-existing game trees.
  if !stage.is_dir()||!stage.file_name().and_then(|n|n.to_str()).is_some_and(|n|n.starts_with(".staging-")&&uuid::Uuid::parse_str(&n[9..]).is_ok())||stage.join("Game").exists(){return Err(err())}
  let canonical=std::fs::canonicalize(stage)?;if canonical!=stage{return Err(err())}
+ let receipt:serde_json::Value=serde_json::from_reader(std::fs::File::open(stage.join("metadata.json"))?)?;
+ let stage_id=&stage.file_name().and_then(|s|s.to_str()).ok_or_else(err)?[9..];
+ if receipt["id"].as_str()!=Some(stage_id)||receipt["gameId"].as_str()!=Some(game_definition.id())||receipt["storeId"].as_str()!=Some(game_definition.store_id())||receipt["managed"]!=true||receipt["path"].as_str().and_then(|s|reqwest::Url::parse(s).ok()).and_then(|u|u.to_file_path().ok())!=Some(stage.join("Game")) {return Err(err())}
+ let versions=stage.parent().ok_or_else(err)?;
+ if versions.file_name().and_then(|s|s.to_str())!=Some("Versions")||versions.parent().and_then(|p|p.file_name()).and_then(|s|s.to_str())!=Some(game_definition.id()) {return Err(err())}
  xodus::secrets::init_secrets()?;let tokens=TokenManager::with_keychain_and_memory();
  let client=reqwest::Client::builder().https_only(true).connect_timeout(std::time::Duration::from_secs(30)).read_timeout(std::time::Duration::from_secs(90)).user_agent("MinecraftMacLauncher/0.2").build()?;
  if tokens.get_user().is_err(){return Err(err())}
  progress("authorizing",0,0);
  xodus::tokens::device::ensure_device_credentials(&client,&tokens).await;
- let id=crate::package::get_content_id(&client,crate::STORE_ID.into(),Some("neutral".into())).await?;
+ let id=crate::package::get_content_id(&client,game_definition.store_id().into(),Some("neutral".into())).await?;
  crate::license::get_license(&client,&tokens,id.clone(),"neutral".into()).await?;
  let package=crate::package::get_packages(&client,&tokens,id.clone()).await?;
  let (version, revision)=crate::package::normalize_version(&package.version)?;
- if version!="1.1.1.0"||uuid::Uuid::parse_str(&package.content_id)?!=uuid::Uuid::parse_str(&id)? {return Err(err())} // Only the tested executable/profile is accepted.
+ game_definition.validate(&version)?;
+ if uuid::Uuid::parse_str(&package.content_id)?!=uuid::Uuid::parse_str(&id)? {return Err(err())} // Only the tested executable/profile is accepted.
  let candidates:Vec<_>=package.package_files.iter().filter(|f|f.file_name.to_ascii_lowercase().ends_with(".msixvc")).collect();
  if candidates.len()!=1{return Err(err())}let file=candidates[0];
  if file.file_size<=0||file.file_size>32*1024*1024*1024i64{return Err(err())}
  let pin_id=format!("{}:{}",id,revision.as_deref().unwrap_or(""));
  let pins:HashMap<String,String>=serde_json::from_str(include_str!("package-pins.json"))?;
  let pinned_hash=pins.get(&pin_id);
- let expected_hash=if !file.file_hash.is_empty(){Some(file.file_hash.as_str())}else{pinned_hash.map(String::as_str)};
+ let expected_hash=if game_definition==crate::game::Game::Bedrock {
+  let digest=pinned_hash.map(String::as_str).or_else(||(!file.file_hash.is_empty()).then_some(file.file_hash.as_str()));
+  if !digest.is_some_and(strong_digest) {return Err(std::io::Error::other("BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED").into())}digest
+ }else{if !file.file_hash.is_empty(){Some(file.file_hash.as_str())}else{pinned_hash.map(String::as_str)}};
  // Developer-only first pin acquisition over authenticated Microsoft HTTPS. Never enabled in distributable builds.
- if expected_hash.is_none() && !cfg!(feature="bootstrap-pins") {return Err(err())}
+ if expected_hash.is_none() && (!cfg!(feature="bootstrap-pins") || game_definition != crate::game::Game::Dungeons) {return Err(err())}
  let file_id=uuid::Uuid::parse_str(&file.content_id)?;
  let (device_key,license)=crate::license::get_license(&client,&tokens,file.content_id.clone(),"neutral".into()).await?;
  if license.content_keys.len()!=1{return Err(err())}
@@ -193,15 +202,28 @@ pub async fn install(stage:&Path)->Result<()> {
   if output.get_ref().metadata().await?.len()!=file.length{return Err(err())}completed+=file.length;
  }
  progress("downloading-components",0,0);
+ let nuget=stage.join("gdk2604.zip");
+ download(&client,NUGET_URL,&nuget,Some(141330356),200*1024*1024,Some("ba9cb693a7898d921116d0a7a9bd1c37d12c55a2c25ac88b08ae17a49e135c3e"),"downloading-components").await?;extract_nuget(&nuget,&components)?;
+ let sdk=stage.join("gdk2504.zip");
+ if game_definition==crate::game::Game::Dungeons {
  let sdk=stage.join("gdk2504.zip");download(&client,SDK_URL,&sdk,Some(566000959),600*1024*1024,Some(SDK_HASH),"downloading-components").await?;
  extract_sdk(&sdk,&components)?;
- let nuget=stage.join("gdk2604.zip");download(&client,NUGET_URL,&nuget,Some(141330356),200*1024*1024,Some("ba9cb693a7898d921116d0a7a9bd1c37d12c55a2c25ac88b08ae17a49e135c3e"),"downloading-components").await?;extract_nuget(&nuget,&components)?;
  let vc=components.join("VC_redist.x64.exe");
  download(&client,"https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe",&vc,Some(18731856),32*1024*1024,Some("843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c"),"downloading-components").await?;
+ } else {
+  let curl=stage.join("curl.zip");
+  download(&client,"https://curl.se/windows/dl-8.22.0_2/curl-8.22.0_2-win64-mingw.zip",&curl,None,64*1024*1024,Some("7c8c6b953b4eb2953d2bdc08cca1d5f09a964e9f86c361693559400c9a6d6db0"),"downloading-components").await?;
+  let mut zip=zip::ZipArchive::new(std::fs::File::open(&curl)?)?;
+  for (member,target) in [("bin/libcurl-x64.dll","XCurl.dll"),("bin/curl-ca-bundle.crt","curl-ca-bundle.crt"),("COPYING.txt","curl-COPYING.txt")] {
+   let mut entry=zip.by_name(&format!("curl-8.22.0_2-win64-mingw/{member}"))?;
+   if entry.size()>32*1024*1024{return Err(err())}let mut out=create(&components.join(target))?;std::io::copy(&mut entry,&mut out)?;out.sync_all()?;
+  }
+  std::fs::remove_file(curl)?;
+ }
  let mut hashes=HashMap::new();inventory(&game,&game,&mut hashes)?;inventory(&components,stage,&mut hashes)?;
- let mut receipt=create(&stage.join("download-receipt.json"))?;receipt.write_all(&serde_json::to_vec(&serde_json::json!({"schema":1,"version":version,"revision":revision,"packagePin":pin_id,"packageHash":package_hash,"hashes":hashes}))?)?;receipt.sync_all()?;
+ let mut receipt=create(&stage.join("download-receipt.json"))?;receipt.write_all(&serde_json::to_vec(&serde_json::json!({"schema":1,"gameId":game_definition.id(),"storeId":game_definition.store_id(),"materialization":"persistent-ssd","version":version,"revision":revision,"packagePin":pin_id,"packageHash":package_hash,"hashes":hashes}))?)?;receipt.sync_all()?;
  // Large encrypted/SDK artifacts are strictly transaction-owned and no longer needed.
- for file in [encrypted,sdk,nuget]{std::fs::remove_file(file)?;}
+ for file in [encrypted,sdk,nuget]{if file.exists(){std::fs::remove_file(file)?;}}
  println!("{}",serde_json::json!({"schema":1,"type":"complete","version":version}));Ok(())
 }
 fn inventory(root:&Path,base:&Path,out:&mut HashMap<String,String>)->Result<()> {
@@ -209,3 +231,33 @@ fn inventory(root:&Path,base:&Path,out:&mut HashMap<String,String>)->Result<()> 
  Ok(())
 }
 #[cfg(test)]mod tests{use super::*;#[test]fn reject_archive_escape(){for bad in ["../secret","C:\\secret","/root","a//b","a/./b","a\\..\\b"]{assert!(safe_relative(bad).is_err())}assert_eq!(safe_relative("Dungeons\\Binaries\\WinGDK\\game.exe").unwrap(),PathBuf::from("Dungeons/Binaries/WinGDK/game.exe"));}}
+
+/// Build-time header extraction from the same pinned official SDK. Not used by end users.
+pub fn extract_headers(archive:&Path,out:&Path)->Result<()> {
+ if hash(archive)?!=SDK_HASH{return Err(err())}
+ std::fs::create_dir_all(out)?;
+ let mut zip=zip::ZipArchive::new(std::fs::File::open(archive)?)?;
+ let mut ids=HashSet::new();let mut cabs=vec![];
+ for i in 0..zip.len(){let mut entry=zip.by_index(i)?;let name=entry.name().to_string();
+  if name.ends_with(".msi")&&entry.size()<64*1024*1024{
+   let mut bytes=vec![];entry.read_to_end(&mut bytes)?;let mut m=msi::Package::open(std::io::Cursor::new(bytes))?;
+   if m.has_table("File"){for row in m.select_rows(msi::Select::table("File"))? {
+    if row["FileName"].as_str().is_some_and(|s|s.split('|').next_back()==Some("XCurl.h")){if let Some(id)=row["File"].as_str(){ids.insert(id.to_string());}}
+   }}
+  }else if name.ends_with(".cab"){cabs.push(name);}
+ }
+ for name in cabs{let mut entry=zip.by_name(&name)?;if entry.size()>600*1024*1024{return Err(err())}let mut bytes=vec![];entry.read_to_end(&mut bytes)?;
+  let mut cab=cab::Cabinet::new(std::io::Cursor::new(bytes))?;
+  let files:Vec<_>=cab.folder_entries().flat_map(|f|f.file_entries()).filter(|f|ids.contains(f.name())&&f.uncompressed_size()<1024*1024).map(|f|f.name().to_string()).collect();
+  for id in files{let path=out.join("XCurl.h");if path.exists(){continue;}let mut file=create(&path)?;std::io::copy(&mut cab.read_file(&id)?,&mut file)?;file.sync_all()?;}
+ }
+ if !out.join("XCurl.h").exists(){return Err(err())}Ok(())
+}
+
+fn strong_digest(value:&str)->bool {
+ (value.len()==64&&value.bytes().all(|b|b.is_ascii_hexdigit())) || base64::engine::general_purpose::STANDARD.decode(value).is_ok_and(|v|v.len()==32)
+}
+#[cfg(test)]mod digest_tests {
+ use super::*;
+ #[test]fn bedrock_requires_full_sha256_anchor(){assert!(strong_digest(&"ab".repeat(32)));assert!(strong_digest(&base64::engine::general_purpose::STANDARD.encode([1u8;32])));assert!(!strong_digest(&"ab".repeat(20)));assert!(!strong_digest(""));assert!(!strong_digest("untrusted"));}
+}

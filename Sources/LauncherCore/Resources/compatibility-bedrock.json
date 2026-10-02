@@ -1,0 +1,17 @@
+{
+  "id": "bedrock-managed-1.26.5203-r1",
+  "gameId": "bedrock",
+  "version": "1.26.5203.0",
+  "revision": 1,
+  "hashes": {
+    "wintypes.dll": "d851e0146513cdb2fae6cfb5b7a87a47834b6b80c26943578d0b7bf6c98e459d",
+    "twinapi.appcore.dll": "61e5c4bdc344dcacd9ffcaf1a13bdcbcd5c09b6b23bf4f0487619fc871b1829c",
+    "windows.web.dll": "0d81f4395e4fa91f56573b43eaeb171368e43948267472b4c9039f7c83b324fe",
+    "windows.storage.dll": "2dfcbe7347bacab2661f40d9d2a591f74f6dd80e4e18b3591d3757eb4c03e724",
+    "gameinput.dll": "3373ee2c325c339d45a054baea8c8e7729943a3c1425d437ee7d8a0f00c15e0b",
+    "windows.ui.core.textinput.dll": "172d1d525e1ec16180a46a5dca9a4b952a91d65be2ff3086d4fd2aa81d5092f5",
+    "windows.storage.applicationdata.dll": "eb5b1d34be9e7eeaae5daf9b061e3d86582169feaa1b45acc0dddf98997339a7",
+    "windows.applicationmodel.dll": "12408ea636d91990b4bda836c3e5ba73f42ba5af19664ad63e10e4a7fbf797df",
+    "xgameruntime.dll": "a281ae4f61bb2c0e836b05acabfc3ad11deca4f8a872f17f886c3fbb3c536dc8"
+  }
+}

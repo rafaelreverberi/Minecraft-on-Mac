@@ -1,0 +1,17 @@
+{
+  "Windows.ApplicationModel.DataTransfer.DataTransferManager": "twinapi.appcore.dll",
+  "Windows.ApplicationModel.Core.CoreApplication": "twinapi.appcore.dll",
+  "Windows.Security.ExchangeActiveSyncProvisioning.EasClientDeviceInformation": "twinapi.appcore.dll",
+  "Windows.System.Profile.AnalyticsInfo": "twinapi.appcore.dll",
+  "Windows.System.UserProfile.AdvertisingManager": "twinapi.appcore.dll",
+  "Windows.UI.ViewManagement.ApplicationView": "twinapi.appcore.dll",
+  "Windows.UI.Text.Core.CoreTextServicesManager": "windows.ui.core.textinput.dll",
+  "Windows.UI.ViewManagement.Core.CoreInputView": "windows.ui.core.textinput.dll",
+  "Windows.Storage.Streams.RandomAccessStreamReference": "windows.storage.dll",
+  "Windows.Storage.StorageFolder": "windows.storage.dll",
+  "Windows.Storage.ApplicationData": "windows.storage.applicationdata.dll",
+  "Windows.Data.Json.JsonObject": "windows.web.dll",
+  "Windows.Data.Json.JsonArray": "windows.web.dll",
+  "Windows.Data.Json.JsonValue": "windows.web.dll",
+  "Windows.Foundation.Metadata.ApiInformation": "wintypes.dll"
+}

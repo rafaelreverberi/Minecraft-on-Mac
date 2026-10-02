@@ -11,18 +11,18 @@ public enum ManagedInstaller {
         let version: String?
         let code: String?
     }
-    public static func acquire(stage: URL, progress: @escaping @Sendable (OperationProgress) -> Void) async throws {
+    public static func acquire(stage: URL, game: GameDefinition = .dungeons2, progress: @escaping @Sendable (OperationProgress) -> Void) async throws {
         let helper = try NativeAccount.helperURL()
         try await Task.detached {
             let p = Process(); let pipe = Pipe()
-            p.executableURL = helper; p.arguments = ["install", stage.path]
+            p.executableURL = helper; p.arguments = ["install", stage.path, game.rawValue]
             p.environment = CrossOver.environment().filter { !["WINEDLLOVERRIDES", "WINEDEBUG", "XCURL_COMPAT_IDENTITY"].contains($0.key) }
             p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
             try p.run()
             let timeout = DispatchWorkItem { if p.isRunning { p.terminate() } }
             DispatchQueue.global().asyncAfter(deadline: .now() + 14400, execute: timeout)
             defer { timeout.cancel() }
-            var pending = Data(); var finished = false; var invalid = false; var lastPhase = ""
+            var pending = Data(); var finished = false; var invalid = false; var lastPhase = ""; var failureCode = "INSTALL_FAILED"
             let phases = ["authorizing":"Verifying Microsoft license", "downloading-game":"Downloading game", "verifying-package":"Verifying encrypted package", "decrypting":"Preparing game files", "downloading-components":"Downloading Microsoft components"]
             while let chunk = try pipe.fileHandleForReading.read(upToCount: 4096), !chunk.isEmpty {
                 pending.append(chunk)
@@ -32,15 +32,15 @@ public enum ManagedInstaller {
                     if event.type == "progress", let phase = event.phase, let label = phases[phase], let done = event.completed, let total = event.total, done >= 0, total >= 0, total == 0 || done <= total {
                         if lastPhase != phase { try FileSafety.write(["phase":phase], to: stage.appendingPathComponent("operation-status.json")); lastPhase = phase }
                         progress(.init(label, completed: done, total: total))
-                    } else if event.type == "complete", event.version == "1.1.1.0", !finished { finished = true }
-                    else if event.type == "error", event.code == "INSTALL_FAILED" { invalid = true }
+                    } else if event.type == "complete", event.version == game.baseline, !finished { finished = true }
+                    else if event.type == "error", let code = event.code, ["INSTALL_FAILED", "BEDROCK_VERSION_TOO_OLD", "BEDROCK_COMPATIBILITY_UNVERIFIED", "BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED"].contains(code) { invalid = true; failureCode = code }
                     else { invalid = true }
                 }
                 if invalid || pending.count > 4096 { invalid = true; if p.isRunning { p.terminate() }; break }
             }
             p.waitUntilExit()
             guard p.terminationStatus == 0, finished, !invalid, pending.isEmpty else {
-                throw LauncherError("INSTALL_FAILED", "The licensed download or extraction did not complete.", recovery: "Check the connection, Microsoft account and available storage, then retry. Your current version is preserved; interrupted files are listed in Storage.")
+                throw LauncherError(failureCode, failureCode == "BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED" ? "Microsoft did not supply a trusted SHA-256 for this Bedrock package revision. A reviewed package pin is required." : "The licensed download or extraction did not complete.", recovery: "Check the connection, Microsoft account and available storage, then retry. Your current version is preserved; interrupted files are listed in Storage.")
             }
         }.value
     }
@@ -76,6 +76,13 @@ public enum ManagedInstaller {
         for name in ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"] {
             guard try FileSafety.isX64PE(FileSafety.child(name, of: system)) else { throw LauncherError("ENVIRONMENT_SETUP_FAILED", "The Microsoft Visual C++ runtime was not installed correctly.") }
         }
+    }
+    public static func validateOwner(bottle: URL, name: String, game: GameDefinition) throws {
+        let receipt = try JSONDecoder().decode([String:String].self, from: Data(contentsOf: FileSafety.child("minecraftmac-owner.json", of: bottle)))
+        guard let id = receipt["owner"], UUID(uuidString: id) != nil else { throw LauncherError("MANIFEST_MISMATCH", "Invalid environment receipt.") }
+        let legacy = game == .dungeons2 && receipt["schema"] == "1" && receipt["gameId"] == nil && name == "MinecraftMac-\(id)"
+        let scoped = receipt["schema"] == "2" && receipt["gameId"] == game.rawValue && name == "MinecraftMac-\(game.rawValue)-\(id)"
+        guard legacy || scoped else { throw LauncherError("ENVIRONMENT_CROSS_GAME", "Environment ownership does not match this game.") }
     }
     static func replace(_ source: URL, destination: URL) throws {
         let temporary = destination.deletingLastPathComponent().appendingPathComponent(".provision-\(UUID().uuidString)")

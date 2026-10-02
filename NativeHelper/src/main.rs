@@ -12,7 +12,7 @@ mod package;
 mod webview;
 mod login;
 
-const STORE_ID: &str = "9P5786PJB9RP";
+mod game;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Reply {
@@ -36,18 +36,37 @@ async fn main() {
     let command = std::env::args().nth(1).unwrap_or_default();
     if command == "install" {
         let stage=std::env::args().nth(2).unwrap_or_default();
-        let result=AssertUnwindSafe(acquire::install(std::path::Path::new(&stage))).catch_unwind().await;
-        if !matches!(result,Ok(Ok(()))) { println!("{{\"schema\":1,\"type\":\"error\",\"code\":\"INSTALL_FAILED\"}}"); std::process::exit(1); } return;
+        let game = match game::Game::parse(&std::env::args().nth(3).unwrap_or_default()) { Ok(g)=>g,Err(_)=>{println!("{{\"schema\":1,\"type\":\"error\",\"code\":\"INSTALL_FAILED\"}}");std::process::exit(1)} };
+        let result=AssertUnwindSafe(acquire::install(std::path::Path::new(&stage), game)).catch_unwind().await;
+        if !matches!(result,Ok(Ok(()))) {
+            let code=match result { Ok(Err(e))=>match e.to_string().as_str() {
+                "BEDROCK_VERSION_TOO_OLD"=>"BEDROCK_VERSION_TOO_OLD",
+                "BEDROCK_COMPATIBILITY_UNVERIFIED"=>"BEDROCK_COMPATIBILITY_UNVERIFIED",
+                "BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED"=>"BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED",
+                _=>"INSTALL_FAILED"
+            },_=>"INSTALL_FAILED" };
+            println!("{}",serde_json::json!({"schema":1,"type":"error","code":code}));std::process::exit(1);
+        } return;
+    }
+    if command == "bedrock-service" {
+        let root = std::env::args().nth(2).unwrap_or_default();
+        let _ = AssertUnwindSafe(bedrock_account_service::run(std::path::Path::new(&root))).catch_unwind().await;
+        return;
+    }
+    if command == "sdk-headers" {
+        let args:Vec<_>=std::env::args().collect();
+        if args.len()!=4 || acquire::extract_headers(std::path::Path::new(&args[2]),std::path::Path::new(&args[3])).is_err(){std::process::exit(1)}; return;
     }
     if command == "sdk-test" {
         let args:Vec<_>=std::env::args().collect();
         if args.len()!=4 || acquire::extract_sdk(std::path::Path::new(&args[2]),std::path::Path::new(&args[3])).is_err(){std::process::exit(1)}; return;
     }
     if command == "bridge" { let _ = bridge::run(); return; }
-    let reply = AssertUnwindSafe(run(&command)).catch_unwind().await.unwrap_or_else(|_| Reply::failure("MICROSOFT_SERVICE_FAILED"));
+    let reply = AssertUnwindSafe(run(&command, &std::env::args().nth(2).unwrap_or_else(||"dungeons2".into()))).catch_unwind().await.unwrap_or_else(|_| Reply::failure("MICROSOFT_SERVICE_FAILED"));
     println!("{}", serde_json::to_string(&reply).unwrap());
 }
-async fn run(command: &str) -> Reply {
+async fn run(command: &str, game_id: &str) -> Reply {
+    let game = match game::Game::parse(game_id) { Ok(g)=>g,Err(_)=>return Reply::failure("COMMAND_INVALID") };
     if !matches!(command, "status" | "login" | "logout" | "check") { return Reply::failure("COMMAND_INVALID"); }
     if xodus::secrets::init_secrets().is_err() { return Reply::failure("KEYCHAIN_UNAVAILABLE"); }
     let tokens = TokenManager::with_keychain_and_memory();
@@ -79,7 +98,7 @@ async fn run(command: &str) -> Reply {
     if command == "login" {
         return Reply { schema:1, status:"ok", signed_in:true, gamertag, entitlement:"unknown", available_version:None, available_revision:None, error_code:None };
     }
-    let content_id = match package::get_content_id(&client, STORE_ID.to_string(), Some("neutral".into())).await {
+    let content_id = match package::get_content_id(&client, game.store_id().to_string(), Some("neutral".into())).await {
         Ok(id) => id, Err(_) => return Reply::failure("STORE_LOOKUP_FAILED")
     };
     // Real content license authorization comes BEFORE package lookup. No game/CDN downloads here.

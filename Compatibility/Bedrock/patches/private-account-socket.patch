@@ -1,0 +1,12 @@
+--- a/dlls/xgameruntime/GDKComponent/Xodus/Unix/socket.c
++++ b/dlls/xgameruntime/GDKComponent/Xodus/Unix/socket.c
+@@ -133,7 +133,8 @@
+     const char *runtime = getenv( "XDG_RUNTIME_DIR" );
+     if (!runtime) return E_NOT_VALID_STATE;
+ #elif defined(__APPLE__)
+-    const char *runtime = "/tmp";
++    const char *runtime = getenv( "MML_BEDROCK_RUNTIME_DIR" );
++    if (!runtime || runtime[0] != '/') return E_NOT_VALID_STATE;
+ #endif
+ 
+     len = strlen( runtime ) + strlen( socket_suffix ) + 2;

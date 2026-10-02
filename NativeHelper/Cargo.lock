@@ -3021,6 +3021,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minecraft-bedrock-account-service"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "quick-xml",
+ "reqwest 0.13.5",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "xodus",
+]
+
+[[package]]
 name = "minecraft-native-helper"
 version = "0.1.0"
 dependencies = [
@@ -3029,6 +3043,7 @@ dependencies = [
  "credential-bridge",
  "futures-util",
  "keyring-core",
+ "minecraft-bedrock-account-service",
  "msi",
  "msixvc",
  "reqwest 0.13.5",

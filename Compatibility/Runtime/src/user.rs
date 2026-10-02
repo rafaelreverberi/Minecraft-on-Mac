@@ -1848,7 +1848,8 @@ pub async fn get_license_token(
 }
 
 #[tokio::test]
-async fn test() {
+#[ignore = "Requires an explicitly enabled licensed Microsoft account and credential broker"]
+async fn live_license_token() {
     unsafe {
         let client = reqwest::Client::builder()
             .use_rustls_tls()

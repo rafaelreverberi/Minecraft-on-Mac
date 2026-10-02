@@ -53,16 +53,15 @@ public enum FileSafety {
         guard let pe = try file.read(upToCount: 6), pe.count == 6 else { return false }
         return Array(pe.prefix(4)) == [0x50,0x45,0,0] && pe[4] == 0x64 && pe[5] == 0x86
     }
-    public static func version(_ root: URL) throws -> String {
+    public static func version(_ root: URL, game: GameDefinition = .dungeons2) throws -> String {
         let config = try child("MicrosoftGame.config", of: root)
         let data = try Data(contentsOf: config)
-        guard data.count < 1024 * 1024, let xml = String(data: data, encoding: .utf8),
-              let regex = try? NSRegularExpression(pattern: #"<Identity\b[^>]*\bName="Microsoft\.MinecraftDungeons2"[^>]*\bVersion="([0-9.]+)""#),
-              let match = regex.firstMatch(in: xml, range: NSRange(xml.startIndex..., in: xml)),
-              let range = Range(match.range(at: 1), in: xml) else {
-            throw LauncherError("GAME_IDENTITY_INVALID", "Select the Minecraft Dungeons II installation folder.")
-        }
-        return String(xml[range])
+        guard data.count < 1024 * 1024 else { throw LauncherError("GAME_IDENTITY_INVALID", "Game configuration is too large.") }
+        let delegate = GameIdentityParser()
+        let parser = XMLParser(data: data); parser.shouldResolveExternalEntities = false; parser.delegate = delegate
+        guard parser.parse(), delegate.count == 1, delegate.name == game.packageIdentity, let version = delegate.version else { throw LauncherError("GAME_IDENTITY_INVALID", "Select the matching game installation folder.") }
+        _ = try PackageVersion(version)
+        return version
     }
     public static func diskUsage(_ root: URL) throws -> Int64 {
         var bytes: Int64 = 0
@@ -74,4 +73,14 @@ public enum FileSafety {
         }
         return bytes
     }
+}
+
+private final class GameIdentityParser: NSObject, XMLParserDelegate {
+    var count = 0
+    var name: String?
+    var version: String?
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String:String]) {
+        if elementName == "Identity" { count += 1; name = attributeDict["Name"]; version = attributeDict["Version"] }
+    }
+    func parser(_ parser: XMLParser, foundExternalEntityDeclarationWithName name: String, publicID: String?, systemID: String?) { parser.abortParsing() }
 }

@@ -5,9 +5,9 @@
   "revision": 3,
   "hashes": {
     "Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe": "4d8de2e84a8a0c7a753d36082ca059388161e4e75fbd45164dd300da14adcb12",
-    "Dungeons/Binaries/WinGDK/XCurl.dll": "dfe2d0a8caa619dfcbd5398a9bb423be1f880b13097852732c822d70f0f4cf44",
+    "Dungeons/Binaries/WinGDK/XCurl.dll": "8660b4ca9f3f3743c8cd0a6af5ea12a669fe48a079a0261cffeefec82a90a61d",
     "Dungeons/Binaries/WinGDK/XCurl2504.dll": "cd41c0a777861bee4eaf36e6cd8a26ffadaf78a5e4b0f7eb47d34768a3091d80",
-    "Dungeons/Binaries/WinGDK/xgameruntime.dll": "12442ce92faf5c1560f3bb454d15290f09e982e831f9877df48d73175a6fbfe5",
+    "Dungeons/Binaries/WinGDK/xgameruntime.dll": "e5f03a978abad9fe416de06f17f3d86693be83abc7842882e1e8b87b6940a7bb",
     "Dungeons/Binaries/WinGDK/xgameruntime.gdk.dll": "815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59",
     "Dungeons/Binaries/WinGDK/libHttpClient.GDK.dll": "ca94296a372096153806422f5236144c695dfa9cd77607ef1761afc0e5a184b1"
   }

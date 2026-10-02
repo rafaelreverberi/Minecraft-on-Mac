@@ -952,6 +952,9 @@ impl XvdFile {
             sfile.offset >= s.section_offset && sfile.offset < s.section_offset + s.section_length
         });
 
+        if sfile.keep_encrypted && decrypt_all && s.is_none() {
+            return Err(io::Error::other("Protected file has no decryption section").into());
+        }
         let mut tweak = None;
         let mut tweak_cipher = None;
         let mut data_cipher = None;
@@ -985,6 +988,12 @@ impl XvdFile {
                 sfile.length,
             );
             i.read_exact(&mut page).await?;
+            if !sfile.data_hashs.is_empty() {
+                use sha2::{Digest, Sha256};
+                let expected = sfile.data_hashs.get((page_in_section - page_start) as usize).ok_or_else(|| io::Error::other("Missing protected page hash"))?;
+                if Sha256::digest(page)[..20] != *expected { return Err(io::Error::other("Protected page integrity failed").into()); }
+            }
+
             let to_write = min(
                 PAGE_SIZE,
                 sfile.length as usize
@@ -1063,5 +1072,41 @@ impl XvdFile {
     {
         self.extract_file_ex(i, out, sfile, full_key, progress, true)
             .await
+    }
+}
+
+#[cfg(test)]
+mod persistent_tests {
+    use super::*;
+    use crate::crypt::encrypt_page_xts;
+    use sha2::{Digest,Sha256};
+    fn fixture() -> (XvdFile, SegmentFile, Vec<u8>, Vec<u8>) {
+        let mut bytes = XvdHeader::buffer();bytes[512..520].copy_from_slice(b"msft-xvd");bytes[528..536].copy_from_slice(&116444736000000000u64.to_le_bytes());
+        let mut header=XvdHeader::try_from_array(&bytes).unwrap();header.drive_size=Bytes(4096);let layout=header.layout();
+        let region=XvcRegionId::Other(7);let id=Uuid::nil();let key=[42u8;32];
+        let expected:Vec<_>=(0..4096).map(|n|(n%251) as u8).collect();
+        let mut page:[u8;4096]=expected.clone().try_into().unwrap();
+        encrypt_page_xts(&mut page,TweakGenerator::new(region,id).with_data_unit(0),&Aes128Enc::new((&<[u8;16]>::try_from(&key[..16]).unwrap()).into()),&Aes128Enc::new((&<[u8;16]>::try_from(&key[16..]).unwrap()).into()));
+        let hash:[u8;20]=Sha256::digest(page)[..20].try_into().unwrap();
+        let file=SegmentFile{offset:0,length:4021,data_hashs:vec![hash],keep_encrypted:true};
+        let section=EncryptedSectionInfo{section_offset:0,section_length:4096,header_id:region,vduid:id,data_units:None,first_segment_index:0,data_hashs:vec![hash]};
+        (XvdFile{header,layout,encrypted_section_infos:vec![section]},file,page.to_vec(),expected[..4021].to_vec())
+    }
+    #[tokio::test]
+    async fn protected_file_is_decrypted_to_separate_persistent_ssd_output() {
+        let (xvd,file,encrypted,expected)=fixture();
+        let root=std::env::temp_dir().join(format!("mml-ssd-test-{}",Uuid::new_v4()));std::fs::create_dir(&root).unwrap();
+        let source=root.join("encrypted");let target=root.join("plaintext");std::fs::write(&source,&encrypted).unwrap();
+        let mut input=tokio::fs::File::open(&source).await.unwrap();let mut output=tokio::fs::File::create(&target).await.unwrap();
+        xvd.mount_mem_fd(&mut input,&mut output,&file,[42;32],|_,_|{}).await.unwrap();output.sync_all().await.unwrap();drop(output);
+        assert_eq!(std::fs::read(&target).unwrap(),expected);assert_eq!(std::fs::read(&source).unwrap(),encrypted);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn corrupt_truncated_or_sectionless_protected_files_are_rejected() {
+        let (mut xvd,file,mut encrypted,_)=fixture();encrypted[17]^=1;
+        assert!(xvd.mount_mem_fd(&mut &encrypted[..],&mut Vec::new(),&file,[42;32],|_,_|{}).await.is_err());
+        assert!(xvd.mount_mem_fd(&mut &encrypted[..100],&mut Vec::new(),&file,[42;32],|_,_|{}).await.is_err());
+        xvd.encrypted_section_infos.clear();assert!(xvd.mount_mem_fd(&mut &encrypted[..],&mut Vec::new(),&file,[42;32],|_,_|{}).await.is_err());
     }
 }

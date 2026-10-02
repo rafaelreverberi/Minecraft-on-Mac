@@ -24,6 +24,8 @@ cab = "0.6"
 keyring-core = "1.0"
 sha1 = "0.10"
 
+bedrock-account-service = { package = "minecraft-bedrock-account-service", path = "../Compatibility/Bedrock/AccountService" }
+
 [features]
 bootstrap-pins = []
 

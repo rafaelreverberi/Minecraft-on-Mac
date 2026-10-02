@@ -1,0 +1,588 @@
+--- a/dlls/windows.storage/private.h
++++ b/dlls/windows.storage/private.h
+@@ -57,8 +57,8 @@
+ #define WINDOWS_TICK 10000000
+ #define SEC_TO_UNIX_EPOCH 11644473600LL
+ 
+-extern IActivationFactory *random_access_stream_reference_factory;
+-extern IActivationFactory *storage_folder_factory;
++EXTERN_C IActivationFactory *random_access_stream_reference_factory;
++EXTERN_C IActivationFactory *storage_folder_factory;
+ 
+ struct async_operation_iids
+ {
+--- a/dlls/xgameruntime/GDKComponent/System/Threading/XTaskQueue.h
++++ b/dlls/xgameruntime/GDKComponent/System/Threading/XTaskQueue.h
+@@ -269,7 +269,7 @@
+ };
+ 
+ 
+-class TaskQueuePortImpl : public ITaskQueuePort
++class DECLSPEC_UUID("4529CADF-1BA0-4038-A854-2C0CA26396CB") TaskQueuePortImpl : public ITaskQueuePort
+ {
+ public:
+ 
+@@ -458,7 +458,7 @@
+ __CRT_UUID_DECL(TaskQueuePortImpl, 0x4529CADF, 0x1BA0, 0x4038, 0xA8,0x54, 0x2C,0x0C,0xA2,0x63,0x96,0xCB)
+ #endif
+ 
+-class TaskQueuePortContextImpl : public ITaskQueuePortContext
++class DECLSPEC_UUID("AFAF0302-AEBB-491A-946F-BFB283496E7A") TaskQueuePortContextImpl : public ITaskQueuePortContext
+ {
+ public:
+ 
+@@ -504,7 +504,7 @@
+ __CRT_UUID_DECL(TaskQueuePortContextImpl, 0xAFAF0302, 0xAEBB, 0x491A, 0x94,0x6F, 0xBF,0xB2,0x83,0x49,0x6E,0x7A)
+ #endif
+ 
+-class TaskQueueImpl : public ITaskQueue
++class DECLSPEC_UUID("D63140D8-9A27-4951-B446-FB8639490A9B") TaskQueueImpl : public ITaskQueue
+ #ifdef SUSPEND_API
+     , public ISuspendResumeCallback
+ #endif
+@@ -620,4 +620,4 @@
+ HRESULT XTaskQueueDuplicateHandleWithOptions( XTaskQueueHandle queueHandle, XTaskQueueDuplicateOptions options, XTaskQueueHandle *duplicatedHandle );
+ void XTaskQueueResumeTermination( XTaskQueueHandle queue );
+ 
+-#endif
+\ No newline at end of file
++#endif
+--- a/dlls/xgameruntime/GDKComponent/System/XUser.c
++++ b/dlls/xgameruntime/GDKComponent/System/XUser.c
+@@ -159,6 +159,10 @@
+ 
+     UINT64 xuid;
+     HSTRING userHash;
++    SRWLOCK accountPolicyLock;
++    XUserAgeGroup ageGroup;
++    BOOLEAN privilegesKnown;
++    BOOLEAN privileges[1024];
+ 
+     DOUBLE interval;
+     time_t oauth_expiry;
+@@ -484,6 +488,67 @@
+     return hr;
+ }
+ 
++/* Use Microsoft's account claims, never blanket-grant privileges to a child. */
++static void update_account_policy( struct XUser *impl, IJsonObject *claims )
++{
++    XUserAgeGroup age = XUserAgeGroup_Unknown;
++    BOOLEAN privileges[1024] = {0}, known = FALSE;
++    HSTRING value = NULL;
++    IJsonArray *array = NULL;
++    IVector_IJsonValue *vector = NULL;
++    const WCHAR *text, *cursor;
++    WCHAR *end;
++    UINT32 count, i;
++    unsigned long privilege;
++    double number;
++
++    if (SUCCEEDED(get_json_string( claims, L"agg", &value )))
++    {
++        text = WindowsGetStringRawBuffer( value, NULL );
++        if (!wcscmp( text, L"Child" )) age = XUserAgeGroup_Child;
++        else if (!wcscmp( text, L"Teen" )) age = XUserAgeGroup_Teen;
++        else if (!wcscmp( text, L"Adult" )) age = XUserAgeGroup_Adult;
++        WindowsDeleteString( value );
++        value = NULL;
++    }
++    if (SUCCEEDED(get_json_string( claims, L"prv", &value )))
++    {
++        cursor = WindowsGetStringRawBuffer( value, NULL );
++        known = TRUE;
++        while (*cursor)
++        {
++            while (*cursor == ' ') ++cursor;
++            if (!*cursor) break;
++            if (*cursor < '0' || *cursor > '9') { known = FALSE; break; }
++            errno = 0;
++            privilege = wcstoul( cursor, &end, 10 );
++            if (errno || (*end && *end != ' ')) { known = FALSE; break; }
++            if (privilege < ARRAY_SIZE(privileges)) privileges[privilege] = TRUE;
++            cursor = end;
++        }
++        WindowsDeleteString( value );
++    }
++    else if (SUCCEEDED(get_json_array( claims, L"prv", &array )))
++    {
++        known = SUCCEEDED(IJsonArray_QueryInterface( array, &IID_IVector_IJsonValue, (void **)&vector )) &&
++            SUCCEEDED(IVector_IJsonValue_get_Size( vector, &count ));
++        for (i = 0; known && i < count; ++i)
++        {
++            if (FAILED(IJsonArray_GetNumberAt( array, i, &number )) || number < 0 ||
++                number > 4294967295.0 || number != (UINT32)number)
++                known = FALSE;
++            else if (number < ARRAY_SIZE(privileges)) privileges[(UINT32)number] = TRUE;
++        }
++        if (vector) IVector_IJsonValue_Release( vector );
++        IJsonArray_Release( array );
++    }
++    AcquireSRWLockExclusive( &impl->accountPolicyLock );
++    impl->ageGroup = age;
++    impl->privilegesKnown = known;
++    memcpy( impl->privileges, privileges, sizeof(privileges) );
++    ReleaseSRWLockExclusive( &impl->accountPolicyLock );
++}
++
+ static HRESULT user_request_xsts_token( struct XUser *impl, const char *relyingParty )
+ {
+     static const char prefix[] = "{\"TokenType\":\"JWT\",\"RelyingParty\":\"";
+@@ -552,6 +617,7 @@
+     impl->userHash = newUserHash;
+     impl->xstsRelyingParty = newRelyingParty;
+     impl->xuid = newXuid;
++    if (!strcmp( relyingParty, "http://xboxlive.com" )) update_account_policy( impl, child );
+     newToken = NULL;
+     newUserHash = NULL;
+     newRelyingParty = NULL;
+@@ -1326,7 +1392,10 @@
+ static HRESULT WINAPI x_user_XUserGetAgeGroup( IXUserImpl6 *iface, XUserHandle user, XUserAgeGroup *ageGroup )
+ {
+     TRACE( "iface %p, user %p, ageGroup %p.\n", iface, user, ageGroup );
+-    *ageGroup = XUserAgeGroup_Adult;
++    if (!user || !ageGroup) return E_POINTER;
++    AcquireSRWLockShared( &user->accountPolicyLock );
++    *ageGroup = user->ageGroup;
++    ReleaseSRWLockShared( &user->accountPolicyLock );
+     return S_OK;
+ }
+ 
+@@ -1335,8 +1404,14 @@
+     TRACE( "iface %p, user %p, options %d, privilege %d, hasPrivilege %p, reason %p.\n", iface, user, options, privilege, hasPrivilege, reason );
+     if (!user || !hasPrivilege) return E_POINTER;
+ 
+-    *hasPrivilege = TRUE;
+-    if (reason) *reason = XUserPrivilegeDenyReason_None;
++    if (options != XUserPrivilegeOptions_None && options != XUserPrivilegeOptions_AllUsers)
++        return E_INVALIDARG;
++    AcquireSRWLockShared( &user->accountPolicyLock );
++    *hasPrivilege = user->privilegesKnown && (UINT32)privilege < ARRAY_SIZE(user->privileges) &&
++        user->privileges[(UINT32)privilege];
++    if (reason) *reason = *hasPrivilege ? XUserPrivilegeDenyReason_None :
++        (user->privilegesKnown ? XUserPrivilegeDenyReason_Restricted : XUserPrivilegeDenyReason_Unknown);
++    ReleaseSRWLockShared( &user->accountPolicyLock );
+     return S_OK;
+ }
+ 
+--- a/dlls/xgameruntime/GDKComponent/Xodus/IPCLayer.cpp
++++ b/dlls/xgameruntime/GDKComponent/Xodus/IPCLayer.cpp
+@@ -248,11 +248,15 @@
+         handler->Release();
+         CloseHandle( context.event );
+         if ( FAILED( status ) ) return status;
+-        if ( asyncres )
++        if ( asyncres == WAIT_TIMEOUT )
+         {
+             WARN("Timeout while waiting for a Xodus response.\n");
+-            return HRESULT_FROM_NT( STATUS_TIMEOUT );
++            /* STATUS_TIMEOUT is informational: HRESULT_FROM_NT preserves its
++             * success severity. It must not be returned with an empty result. */
++            return HRESULT_FROM_WIN32( ERROR_TIMEOUT );
+         }
++        if ( asyncres != WAIT_OBJECT_0 ) return E_FAIL;
++        if ( !context.response ) return E_UNEXPECTED;
+ 
+         result->vt = VT_UNKNOWN;
+         result->punkVal = context.response;
+--- a/dlls/xgameruntime/GDKComponent/Xodus/XodusService.cpp
++++ b/dlls/xgameruntime/GDKComponent/Xodus/XodusService.cpp
+@@ -186,8 +186,8 @@
+         auto ctx = static_cast<MsaTokenRequestContext *>(param);
+         IAsyncOperation<IXodusIPCPacket *> *asyncop = nullptr;
+         HSTRING_HEADER classNameHeader;
+-        IMsaTokenResponse *token;
+-        IBufferFactory *factory;
++        IMsaTokenResponse *token = nullptr;
++        IBufferFactory *factory = nullptr;
+         UINT16 messageType = 3; /* MSA_TOKEN_REQUEST */
+         char *xml = nullptr;
+         HSTRING className;
+@@ -196,19 +196,19 @@
+ 
+         if (FAILED(hr = WindowsCreateStringReference( RuntimeClass_Windows_Storage_Streams_Buffer,
+                                                       wcslen( RuntimeClass_Windows_Storage_Streams_Buffer ),
+-                                                      &classNameHeader, &className ))) return hr;
+-
+-        if (FAILED(hr = RoGetActivationFactory( className, __uuidof( IBufferFactory ), (void **)&factory ))) return hr;
++                                                      &classNameHeader, &className ))) goto cleanup;
++
++        if (FAILED(hr = RoGetActivationFactory( className, __uuidof( IBufferFactory ), (void **)&factory ))) goto cleanup;
+         if (FAILED(hr = xodus_xml_builder->BuildMsaTokenRequestXml( ctx->clientId, ctx->allowUi, ctx->fullTrust, &xml ))) goto cleanup;
+         if (FAILED(hr = factory->Create( strlen( xml ) + 1, &requestMessage ))) goto cleanup;
+         if (FAILED(hr = requestMessage->QueryInterface<IBufferByteAccess>( &requestByteAccess ))) goto cleanup;
+         if (FAILED(hr = requestByteAccess->Buffer( &buffer ))) goto cleanup;
+-        if (FAILED(hr = requestMessage->put_Length( strlen( xml ) + 1 ))) goto cleanup;
++        if (FAILED(hr = requestMessage->put_Length( strlen( xml ) ))) goto cleanup;
+         memcpy( buffer, xml, strlen( xml ) + 1 );
+ 
+         /* Construct a new IPC Packet */
+         requestPacket = new XodusIPCPacket( MagicHeaderType::XML, messageType, requestMessage );
+-        xodus_ipclayer->SendRequestAsync( requestPacket, &asyncop );
++        if (FAILED(hr = xodus_ipclayer->SendRequestAsync( requestPacket, &asyncop ))) goto cleanup;
+         if (AsyncOperationCompletedHandler<IXodusIPCPacket *>::await_AsyncOperation( asyncop, INFINITE ))
+         {
+             hr = E_FAIL;
+@@ -216,17 +216,19 @@
+         }
+ 
+         if (FAILED(hr = asyncop->GetResults( &responsePacket ))) goto cleanup;
+-        responsePacket->get_MessageType( &messageType );
++        if (!responsePacket) { hr = E_UNEXPECTED; goto cleanup; }
++        if (FAILED(hr = responsePacket->get_MessageType( &messageType ))) goto cleanup;
+         if (messageType != 4 /* MSA_TOKEN_RESPONSE */)
+         {
+             hr = E_FAIL;
+             goto cleanup;
+         }
+ 
+-        responsePacket->get_Message( &responseMessage );
++        if (FAILED(hr = responsePacket->get_Message( &responseMessage ))) goto cleanup;
++        if (!responseMessage) { hr = E_UNEXPECTED; goto cleanup; }
+         if (FAILED(hr = responseMessage->QueryInterface<IBufferByteAccess>( &responseByteAccess ))) goto cleanup;
+         if (FAILED(hr = responseByteAccess->Buffer( &buffer ))) goto cleanup;
+-        xodus_xml_builder->FromMsaTokenResponseXml( reinterpret_cast<char *>(buffer), &token );
++        if (FAILED(hr = xodus_xml_builder->FromMsaTokenResponseXml( reinterpret_cast<char *>(buffer), &token ))) goto cleanup;
+ 
+         result->vt = VT_UNKNOWN;
+         result->punkVal = token;
+@@ -240,7 +242,7 @@
+         if (requestPacket) requestPacket->Release();
+         if (asyncop) asyncop->Release();
+         if (xml) free( xml );
+-        factory->Release();
++        if (factory) factory->Release();
+         delete ctx;
+         return hr;
+     }
+--- a/dlls/xgameruntime/GDKComponent/Xodus/XodusXMLBuilder.cpp
++++ b/dlls/xgameruntime/GDKComponent/Xodus/XodusXMLBuilder.cpp
+@@ -154,7 +154,10 @@
+ 
+         TRACE( "xml_string %s, response %p.\n", debugstr_a( xml_string ), response );
+ 
+-        if (!(doc = xmlReadMemory( xml_string, strlen( xml_string ), nullptr, nullptr, 0 ))) return E_FAIL;
++        if (!response) return E_POINTER;
++        *response = nullptr;
++        if (!xml_string || !*xml_string) return E_FAIL;
++        if (!(doc = xmlReadMemory( xml_string, strlen( xml_string ), nullptr, nullptr, XML_PARSE_NONET ))) return E_FAIL;
+         if (!(root = xmlDocGetRootElement( doc )))
+         {
+             xmlFreeDoc( doc );
+@@ -169,6 +172,12 @@
+                     break;
+                 }
+ 
++        if (!token || !*token)
++        {
++            if (token) xmlFree(token);
++            xmlFreeDoc(doc);
++            return E_FAIL;
++        }
+         *response = new MsaTokenResponse( token );
+         xmlFreeDoc( doc );
+         return S_OK;
+--- a/dlls/xgameruntime/WineCoreUAP/Foundation/IWineAsync.cpp
++++ b/dlls/xgameruntime/WineCoreUAP/Foundation/IWineAsync.cpp
+@@ -80,6 +80,8 @@
+         Close();
+ 
+         if ( invoker ) invoker->Release();
++        if ( errorInfo ) errorInfo->Release();
++        PropVariantClear( &result );
+ 
+         delete this;
+     }
+@@ -128,6 +130,8 @@
+ AsyncInfo::put_Completed( IWineAsyncOperationCompletedHandler *handler ) noexcept
+ {
+     TRACE( "iface %p, handler %p.\n", this, handler );
++    if (!handler) return E_POINTER;
++    AsyncStatus completed_status = Started;
+ 
+     {
+         const std::lock_guard<std::mutex> lock( mutex );
+@@ -143,17 +147,17 @@
+ 
+         if ( status > Started )
+         {
+-            IInspectable *operation = IInspectable_outer;
+-            AsyncStatus status = this->status;
++            completed_status = status;
+             this->handler = NULL; /* Prevent concurrent invoke. */
+-
+-            handler->Invoke( operation, status );
+-            handler->Release();
+-
+-            return S_OK;
+         }
+     }
+-
++    /* A completion handler may call GetResults. Never invoke it with the
++     * result mutex held, including when completion beat registration. */
++    if (completed_status != Started)
++    {
++        handler->Invoke( IInspectable_outer, completed_status );
++        handler->Release();
++    }
+     return S_OK;
+ }
+ 
+@@ -184,20 +188,16 @@
+ AsyncInfo::get_Result( PROPVARIANT *result ) noexcept
+ {
+     TRACE( "iface %p, result %p.\n", this, result );
+-
+-    {
+-        const std::lock_guard<std::mutex> lock( mutex );
+-
+-        if ( status == Completed || status == Error )
+-        {
+-            PropVariantCopy( result, &this->result );
+-        }
+-        // This is where we resubmit the IRestrictedErrorInfo that we received upon AsyncStatus::Error
+-        if ( this->status == Error && errorInfo )
+-            SetErrorInfo( 0, errorInfo );
+-    }
+-
+-    return hr;
++    if (!result) return E_POINTER;
++    const std::lock_guard<std::mutex> lock( mutex );
++    if (status == Started || status == Closed) return E_ILLEGAL_METHOD_CALL;
++    if (status == Canceled) return E_ABORT;
++    if (FAILED(hr))
++    {
++        if (errorInfo) SetErrorInfo( 0, errorInfo );
++        return hr;
++    }
++    return PropVariantCopy( result, &this->result );
+ }
+ 
+ HRESULT WINAPI
+@@ -331,7 +331,7 @@
+ {
+     HRESULT hr;
+     AsyncInfo *impl = static_cast<AsyncInfo *>( iface );
+-    PROPVARIANT result;
++    PROPVARIANT result = {};
+     IInspectable *operation = impl->IInspectable_outer;
+     IWineAsyncOperationCompletedHandler *handler = nullptr;
+     AsyncStatus status;
+@@ -343,29 +343,37 @@
+     {
+         const std::lock_guard<std::mutex> lock( impl->mutex );
+ 
+-        if ( impl->status != Closed )
++        if ( impl->status == Started )
+             impl->status = FAILED(hr) ? Error : Completed;
+ 
+         if ( impl->status == Error )
+             GetErrorInfo(0, &impl->errorInfo);
+ 
+-        PropVariantCopy( &impl->result, &result );
++        /* Error callbacks are allowed to leave their result untouched. */
++        if (impl->status == Completed)
++        {
++            impl->result = result; /* Move the callback's owned result. */
++            PropVariantInit( &result );
++        }
+         impl->hr = hr;
+ 
+         if ( impl->handler != nullptr && impl->handler != HANDLER_NOT_SET )
+         {
+             handler = impl->handler;
+-            handler->AddRef();
++            /* Transfer the reference retained by put_Completed. */
+             status = impl->status;
+             impl->handler = nullptr;
+         }
+     }
+ 
++    PropVariantClear( &result );
++
+     if ( handler )
+     {
+         handler->Invoke( operation, status );
+         handler->Release();
+     }
++    operation->Release(); /* Paired with Start. */
+ }
+ 
+ template<typename T>
+@@ -476,13 +484,21 @@
+ {
+     TRACE( "iface %p.\n", this );
+ 
+-    PROPVARIANT result = {.vt = VT_NULL};
++    if (!results) return E_POINTER;
++    *results = nullptr;
++    PROPVARIANT result = {};
+     HRESULT hr;
+ 
+     hr = info->get_Result( &result );
+ 
+-    if ( result.vt == VT_UNKNOWN )
++    if ( SUCCEEDED(hr) && result.vt == VT_UNKNOWN && result.punkVal )
++    {
++        /* Transfer the reference obtained by PropVariantCopy to the caller. */
+         *results = static_cast<T>(result.punkVal);
++        result.vt = VT_EMPTY;
++        result.punkVal = nullptr;
++    }
++    else if ( SUCCEEDED(hr) ) hr = E_UNEXPECTED;
+ 
+     PropVariantClear( &result );
+ 
+@@ -500,7 +516,6 @@
+     if ( FAILED( hr = AsyncInfo::Create( invoker, param, callback, static_cast<IInspectable *>(impl), &impl->info ) ) ||
+          FAILED( hr = impl->info->Start() ) )
+     {
+-        impl->info->Release();
+         delete impl;
+         return hr;
+     }
+@@ -632,7 +647,6 @@
+     if ( FAILED( hr = AsyncInfo::Create( invoker, param, callback, static_cast<IInspectable *>(impl), &impl->info ) ) ||
+          FAILED( hr = impl->info->Start() ) )
+     {
+-        impl->info->Release();
+         delete impl;
+         return hr;
+     }
+@@ -640,4 +654,4 @@
+     *out = impl;
+     TRACE( "created AsyncAction %p\n", *out );
+     return S_OK;
+-}
+\ No newline at end of file
++}
+--- a/dlls/xgameruntime/WineCoreUAP/Foundation/IWineAsync.hpp
++++ b/dlls/xgameruntime/WineCoreUAP/Foundation/IWineAsync.hpp
+@@ -119,7 +119,7 @@
+ {
+ public:
+     AsyncOperation() = default;
+-    virtual ~AsyncOperation() = default;
++    virtual ~AsyncOperation() { if (info) info->Release(); }
+ 
+         /* IUnknown Methods */
+     HRESULT WINAPI
+@@ -166,7 +166,7 @@
+ {
+ public:
+     AsyncAction() = default;
+-    virtual ~AsyncAction() = default;
++    virtual ~AsyncAction() { if (info) info->Release(); }
+ 
+     /* IUnknown Methods */
+     HRESULT WINAPI
+@@ -214,7 +214,7 @@
+     : public IAsyncOperationCompletedHandler<T>
+ {
+ public:
+-    virtual ~AsyncOperationCompletedHandler() = default;
++    virtual ~AsyncOperationCompletedHandler() { if (event) CloseHandle(event); }
+     
+     /* IUnknown Methods */
+     HRESULT WINAPI
+@@ -271,20 +271,22 @@
+         DWORD ret;
+         auto handler = new AsyncOperationCompletedHandler<T>();
+         handler->event = CreateEventW( NULL, FALSE, FALSE, NULL );
++        if (!handler->event) { handler->Release(); return WAIT_FAILED; }
+ 
+         hr = async->put_Completed( handler );
+-        if ( FAILED( hr ) ) return hr;
++        if ( FAILED( hr ) ) { handler->Release(); return hr; }
+ 
+         ret = WaitForSingleObject( handler->event, timeout );
+-        CloseHandle( handler->event );
++        /* A timed-out wait may still have a pending callback. The last handler
++         * reference closes the event after that callback can no longer run. */
+         handler->Release();
+ 
+         return ret;
+     }
+ 
+ private:
+-    HANDLE event;
+-    std::atomic_long ref{ 1 };
+-};
+-
+-#endif
+\ No newline at end of file
++    HANDLE event = nullptr;
++    std::atomic_long ref{ 1 };
++};
++
++#endif
+--- a/dlls/xgameruntime/main.c
++++ b/dlls/xgameruntime/main.c
+@@ -169,7 +169,7 @@
+     if (FAILED( nts ))
+     {
+         WARN("Failed to initialize unix lib, status %#lx\n", nts);
+-        return FALSE;
++        return HRESULT_FROM_NT( nts );
+     }
+     unixhandle = __wine_unixlib_handle;
+     nts = __wine_unix_call( unixhandle, conn_socket, (void *)xodus_prefix );
+@@ -257,7 +257,7 @@
+                 else if (!strcmp( (char *)child->name, "TitleId" ))
+                 {
+                     char *value = (char *)xmlNodeGetContent( child );
+-                    titleId = strtoul( value, NULL, 10 );
++                    titleId = strtoul( value, NULL, 16 );
+                     free( value );
+                 }
+                 else if (!strcmp( (char *)child->name, "MSAFullTrust" ))
+@@ -338,4 +338,4 @@
+ {
+     WARN( "status %#lx, message %s stub!\n", status, debugstr_a( message ) );
+     return E_NOTIMPL;
+-}
+\ No newline at end of file
++}
+--- a/dlls/xgameruntime/private.h
++++ b/dlls/xgameruntime/private.h
+@@ -56,7 +56,13 @@
+ #include <xasync.h>
+ #include <xasyncprovider.h>
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
+ #include "wine/unixlib.h"
++#ifdef __cplusplus
++}
++#endif
+ #include "wine/debug.h"
+ 
+ #define WIDL_using_Windows_Foundation
+@@ -100,6 +106,9 @@
+ #define IPC_REQUEST_TIMEOUT_MS 5000
+ #define XODUS_INTEROP 1
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
+ extern BOOLEAN initializeCalled;
+ 
+ extern char *msaAppId;
+@@ -148,6 +157,9 @@
+ };
+ 
+ extern unixlib_handle_t unixhandle;
++#ifdef __cplusplus
++}
++#endif
+ 
+ typedef HRESULT (WINAPI *async_operation_callback)( IUnknown *invoker, PVOID param, PROPVARIANT *result );
+ 
+@@ -243,4 +255,4 @@
+     }
+ 
+ 
+-#endif
+\ No newline at end of file
++#endif
