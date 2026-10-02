@@ -5,6 +5,7 @@ import subprocess, shutil, hashlib, plistlib, json, os, argparse
 root=Path(__file__).resolve().parents[1]
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--reuse-compatibility',action='store_true',help='Use previously built artifacts only after verifying every recorded digest.')
+parser.add_argument('--reuse-native-helper',type=Path,help='Reuse an unchanged signed helper only when its digest matches the recorded bundled digest.')
 args=parser.parse_args()
 if args.reuse_compatibility:
  resources=root/'Sources/LauncherCore/Resources'
@@ -20,16 +21,24 @@ if args.reuse_compatibility:
  print('Verified and retained existing compatibility artifacts without rebuilding them.')
 else:
  subprocess.run(['python3',str(root/'scripts/build_bedrock.py')],check=True)
-helper_build=['cargo','build','--release','--locked','--manifest-path',str(root/'NativeHelper/Cargo.toml')]
 if os.environ.get('MML_BOOTSTRAP_PINS')=='1':raise SystemExit('Release packaging refuses the engineering bootstrap feature.')
-subprocess.run(helper_build,check=True)
+if args.reuse_native_helper:
+ helper=args.reuse_native_helper.resolve()
+ expected=(root/'Sources/LauncherCore/Resources/helper-sha256.txt').read_text().strip()
+ if not helper.is_file() or hashlib.sha256(helper.read_bytes()).hexdigest()!=expected:
+  raise SystemExit('Cannot reuse a native helper that differs from the recorded bundled digest.')
+ subprocess.run(['codesign','--verify','--strict',str(helper)],check=True)
+ print('Verified and retained the unchanged signed native helper.')
+else:
+ helper_build=['cargo','build','--release','--locked','--manifest-path',str(root/'NativeHelper/Cargo.toml')]
+ subprocess.run(helper_build,check=True)
+ helper=root/'NativeHelper/target/release/minecraft-native-helper'
+ # Sign helper first because signing changes its digest.
+ subprocess.run(['codesign','--force','--sign','-',str(helper)],check=True)
+ (root/'Sources/LauncherCore/Resources/helper-sha256.txt').write_text(hashlib.sha256(helper.read_bytes()).hexdigest()+'\n')
 if not args.reuse_compatibility:
  subprocess.run(['python3',str(root/'scripts/build_probes.py')],check=True)
  subprocess.run(['python3',str(root/'scripts/build_compatibility.py')],check=True)
-helper=root/'NativeHelper/target/release/minecraft-native-helper'
-# Sign helper first because signing changes its digest.
-subprocess.run(['codesign','--force','--sign','-',str(helper)],check=True)
-(root/'Sources/LauncherCore/Resources/helper-sha256.txt').write_text(hashlib.sha256(helper.read_bytes()).hexdigest()+'\n')
 subprocess.run(['swift','build','-c','release'],cwd=root,check=True)
 bin_dir=Path(subprocess.check_output(['swift','build','-c','release','--show-bin-path'],cwd=root,text=True).strip())
 app=root/'build/Minecraft on Mac.app'
@@ -59,7 +68,7 @@ for source,name in [('Compatibility/Bedrock/LICENSE','WineGDK-LGPL-LICENSE'),('d
  shutil.copy2(root/source,notices/name)
 subprocess.run(['python3',str(root/'scripts/collect_notices.py'),str(notices)],check=True)
 # Xcode's SwiftPM engine produces resource .bundle directories alongside executable.
-info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundleIconFile':'LauncherMac','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.3.0','CFBundleVersion':'4','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
+info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundleIconFile':'LauncherMac','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.3.1','CFBundleVersion':'5','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
 shutil.copy2(root/'Sources/MinecraftMacLauncher/Resources/Artwork/LauncherMac.icns',app/'Contents/Resources/LauncherMac.icns')
 (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)

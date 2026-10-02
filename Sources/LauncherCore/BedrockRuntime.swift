@@ -52,7 +52,13 @@ public enum BedrockRuntime {
               try FileSafety.hash(FileSafety.child("drive_c/windows/system32/gameinput.dll", of: bottle)) == profile().hashes["gameinput.dll"] else { throw LauncherError("BEDROCK_RUNTIME_INVALID", "Bedrock executable or GameInput is invalid.") }
         let config = try String(contentsOf: FileSafety.child("cxbottle.conf", of: bottle), encoding: .utf8)
         guard config.contains("\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\""), config.contains(runtime.path) else { throw LauncherError("BEDROCK_RUNTIME_INVALID", "The owned environment lost its runtime configuration.") }
-        if runProbes { try probe(install, runtime: runtime, crossOver: crossOver) }
+        if runProbes {
+            // Wine updates can restore builtin WinRT registrations even while our
+            // DLL hashes and activation-factory probes still pass. Reapply the
+            // owned Bedrock classes after Wine startup, before testing or playing.
+            try registerComponents(install, runtime: runtime, crossOver: crossOver)
+            try probe(install, runtime: runtime, crossOver: crossOver)
+        }
     }
     public static func provision(_ install: Installation, root: URL, crossOver: CrossOver, owner: UUID) async throws {
         try crossOver.requireBedrockVersion()
@@ -80,6 +86,13 @@ public enum BedrockRuntime {
         config += "\n\(begin)\n[Wine]\n\"DllPath\" = \"\(search)\"\n[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n\(end)\n"
         try Data(config.utf8).write(to: configURL, options: .atomic)
         try await ManagedInstaller.run(crossOver.wine, arguments: ["--bottle", install.bottle, "--debugmsg", "-all", "wineboot", "-u"])
+        try registerComponents(install, runtime: runtime, crossOver: crossOver)
+        let msi = try FileSafety.child("Installers/GameInputRedist.msi", of: install.path)
+        do { try await ManagedInstaller.run(crossOver.wine, arguments: ["--bottle", install.bottle, "--debugmsg", "-all", "msiexec", "/i", msi.path, "/qn", "/norestart"], timeout: 600, accepted: [0,194]) }
+        catch { throw LauncherError("BEDROCK_GAMEINPUT_FAILED", "GameInput installation failed.", recovery: "Your current version and worlds are preserved. Retry the managed installation.") }
+        try ManagedInstaller.replace(FileSafety.child("gameinput.dll", of: install.path), destination: FileSafety.child("drive_c/windows/system32/gameinput.dll", of: bottle))
+    }
+    static func registrationData(runtime: URL) throws -> Data {
         let classes = try JSONDecoder().decode([String:String].self, from: Data(contentsOf: FileSafety.child("classes.json", of: runtime)))
         var registry = "Windows Registry Editor Version 5.00\n\n"
         for (name, dll) in classes.sorted(by: { $0.key < $1.key }) {
@@ -88,13 +101,23 @@ public enum BedrockRuntime {
             registry += "[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\\(name)]\n\"DllPath\"=\"\(path.replacingOccurrences(of: "\\", with: "\\\\"))\"\n\n"
         }
         registry += "[HKEY_CURRENT_USER\\Software\\Wine\\WineDbg]\n\"ShowCrashDialog\"=dword:00000000\n"
-        let reg = try FileSafety.child("register-components.reg", of: install.path.deletingLastPathComponent())
-        try registry.data(using: .utf16)!.write(to: reg, options: .atomic)
-        try await ManagedInstaller.run(crossOver.wine, arguments: ["--bottle", install.bottle, "--debugmsg", "-all", "regedit", "/S", reg.path])
-        let msi = try FileSafety.child("Installers/GameInputRedist.msi", of: install.path)
-        do { try await ManagedInstaller.run(crossOver.wine, arguments: ["--bottle", install.bottle, "--debugmsg", "-all", "msiexec", "/i", msi.path, "/qn", "/norestart"], timeout: 600, accepted: [0,194]) }
-        catch { throw LauncherError("BEDROCK_GAMEINPUT_FAILED", "GameInput installation failed.", recovery: "Your current version and worlds are preserved. Retry the managed installation.") }
-        try ManagedInstaller.replace(FileSafety.child("gameinput.dll", of: install.path), destination: FileSafety.child("drive_c/windows/system32/gameinput.dll", of: bottle))
+        return registry.data(using: .utf16)!
+    }
+    private static func registerComponents(_ install: Installation, runtime: URL, crossOver: CrossOver) throws {
+        // This operation is restricted to a receipt-checked launcher-owned bottle.
+        try ManagedInstaller.validateOwner(bottle: crossOver.bottleURL(install.bottle), name: install.bottle, game: .bedrock)
+        let reg = try FileSafety.child(".bedrock-registration-\(UUID().uuidString).reg", of: install.path.deletingLastPathComponent())
+        try registrationData(runtime: runtime).write(to: reg, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: reg) }
+        let p = Process(); p.executableURL = crossOver.wine
+        p.arguments = ["--bottle", install.bottle, "--debugmsg", "-all", "regedit", "/S", reg.path]
+        p.environment = CrossOver.environment(for: .bedrock)
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        try p.run()
+        let timer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now()+60, execute: timer)
+        defer { timer.cancel() }; p.waitUntilExit()
+        guard p.terminationStatus == 0 else { throw LauncherError("BEDROCK_RUNTIME_INVALID", "Bedrock WinRT registration could not be restored.", recovery: "Retry Play after CrossOver finishes updating the owned environment.") }
     }
     private static func probe(_ install: Installation, runtime: URL, crossOver: CrossOver) throws {
         let p = Process(); p.executableURL = crossOver.wine

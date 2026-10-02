@@ -101,6 +101,20 @@ final class BedrockTests: XCTestCase {
         try ManagedInstaller.validateOwner(bottle:root,name:"MinecraftMac-bedrock-\(id.uuidString)",game:.bedrock)
         XCTAssertThrowsError(try ManagedInstaller.validateOwner(bottle:root,name:"BedrockMacOS",game:.bedrock))
     }
+    func testRegistrationUsesOwnedDllInsteadOfCrossOverBuiltin() throws {
+        let root = try temporary()
+        let runtime = root.appendingPathComponent("Owned runtime")
+        try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: BedrockRuntime.assets().appendingPathComponent("classes.json"), to: runtime.appendingPathComponent("classes.json"))
+        let text = try XCTUnwrap(String(data: BedrockRuntime.registrationData(runtime: runtime), encoding: .utf16))
+        XCTAssertTrue(text.contains("ActivatableClassId\\Windows.Foundation.Metadata.ApiInformation]"))
+        XCTAssertTrue(text.contains("x86_64-windows\\\\wintypes.dll"))
+        XCTAssertFalse(text.contains("system32"))
+        let classes = try JSONDecoder().decode([String:String].self, from: Data(contentsOf: runtime.appendingPathComponent("classes.json")))
+        XCTAssertEqual(text.components(separatedBy: "[HKEY_LOCAL_MACHINE").count - 1, classes.count)
+        try Data("{\"Windows.Foundation.Metadata.ApiInformation\":\"untrusted.dll\"}".utf8).write(to: runtime.appendingPathComponent("classes.json"))
+        XCTAssertThrowsError(try BedrockRuntime.registrationData(runtime: runtime))
+    }
     func testBundledRuntimeProvenanceAndHashes() throws {
         guard let assets = try? BedrockRuntime.assets(), FileManager.default.fileExists(atPath: assets.appendingPathComponent("gameinput.dll").path) else { throw XCTSkip("Build release Bedrock resources with scripts/build_bedrock.py to test artifact integrity") }
         let profile = try BedrockRuntime.profile();XCTAssertEqual(profile.gameId,"bedrock")

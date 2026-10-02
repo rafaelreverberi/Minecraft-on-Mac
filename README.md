@@ -2,7 +2,7 @@
 
 An unofficial native macOS launcher for **Minecraft Dungeons II** and **Minecraft: Bedrock for Windows**, using your legitimately owned Microsoft Store games and separately installed CrossOver.
 
-**[Download v0.3.0](https://github.com/rafaelreverberi/Minecraft-on-Mac/releases/tag/v0.3.0)** · [Installation](docs/MANAGED-INSTALLATION.md) · [Bedrock details](docs/BEDROCK.md) · [Test evidence](docs/ACCEPTANCE.md)
+**[Download v0.3.1](https://github.com/rafaelreverberi/Minecraft-on-Mac/releases/tag/v0.3.1)** · [Installation](docs/MANAGED-INSTALLATION.md) · [Bedrock details](docs/BEDROCK.md) · [Test evidence](docs/ACCEPTANCE.md)
 
 ## Install and play
 
@@ -71,7 +71,7 @@ cargo test --locked --manifest-path Shared/CredentialBridge/Cargo.toml
 MML_XCURL_INCLUDE=/path/to/official/XCurl/Include python3 scripts/package_app.py
 ```
 
-For UI-only work, `python3 scripts/package_app.py --reuse-compatibility` reuses existing runtime/probe artifacts **only after verifying their recorded digests**. Packaging builds the native helper and Swift executable, restores and checks Bedrock resource bytes, bundles artwork/notices and verifies the ad-hoc signature. It does not install the app or launch a game.
+For Swift-only work, `python3 scripts/package_app.py --reuse-compatibility` reuses existing runtime/probe artifacts **only after verifying their recorded digests**. Packaging builds the native helper and Swift executable, restores and checks Bedrock resource bytes, bundles artwork/notices and verifies the ad-hoc signature. Add `--reuse-native-helper /path/to/verified/minecraft-native-helper` to retain the existing signed account helper after checking its recorded digest and signature. It does not install the app or launch a game.
 
 Offline Swift and credential-bridge checks run in GitHub CI. Force-quit tests use disposable signed fixture processes and verify that their children exit while an unrelated process survives. Live game/account checks are opt-in and distinct from fixture tests. See [architecture](ARCHITECTURE.md) and [roadmap](docs/ROADMAP.md).
 

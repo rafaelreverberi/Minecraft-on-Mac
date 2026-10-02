@@ -208,3 +208,36 @@ SHA256/provenance and strict ad-hoc signature checks. The release helper rejects
 engineering inspection commands. World save/reopen, controller and multiplayer
 remain separate live acceptance boundaries. Interrupted owned staging folders
 remain available for explicit cleanup on the Bedrock page.
+
+### Exit 99 after a CrossOver environment update
+
+A later live start failed with status 99 despite passing file integrity and the
+activation-factory probe. Loader diagnostics showed that the owned environment's
+`Windows.Foundation.Metadata.ApiInformation` registration had reverted to
+`C:\windows\system32\wintypes.dll`. CrossOver's builtin implementation returns
+`E_NOTIMPL` for `IsMethodPresent(DataTransferManager, IsSupported)`, causing an
+unhandled `winrt::hresult_not_implemented` exception. The verified Bedrock WineGDK
+DLL already returns `S_OK` and false for this optional method.
+
+Bedrock verification now reapplies the existing fifteen owned WinRT class
+registrations after Wine startup and before runtime probes/Play. This repairs
+Wine-reset registrations without replacing any DLL, reinstalling the game or
+changing saves. Only a receipt-checked Bedrock bottle is eligible. Registration
+runs once per verification with a 60-second limit and removes its temporary file.
+The Dungeons paths, runtime, account helper and launch behavior are unchanged.
+
+Verification: the isolated game start reproduced status 99; the API regression
+probe passed with the corrected registrations and Bedrock's native override;
+the repaired game reached its main menu and real profile, confirmed by the user.
+All 42 Swift tests passed, with two existing opt-in tests skipped. Graphics
+settings briefly tested during diagnosis were restored to their original bytes.
+`scripts/probes/bedrock-api-information.c` exercises the actual optional-method
+query, which the original factory-only probe did not cover. Compile it with
+MinGW and `-lruntimeobject -lole32`, and run through the selected owned Bedrock
+bottle with `--dll 'wintypes=n,b'`. It returns 3 for the incompatible builtin
+implementation and 0 for the verified WineGDK implementation.
+
+For Swift-only fixes, `scripts/package_app.py --reuse-compatibility
+--reuse-native-helper /path/to/verified/minecraft-native-helper` retains the
+signed helper only after checking its recorded digest and signature. This avoids
+changing the shared account helper identity while fixing Bedrock verification.
