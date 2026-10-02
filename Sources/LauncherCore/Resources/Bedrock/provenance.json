@@ -18,10 +18,10 @@
     "windows.ui.core.textinput.dll": "172d1d525e1ec16180a46a5dca9a4b952a91d65be2ff3086d4fd2aa81d5092f5",
     "windows.storage.applicationdata.dll": "eb5b1d34be9e7eeaae5daf9b061e3d86582169feaa1b45acc0dddf98997339a7",
     "windows.applicationmodel.dll": "12408ea636d91990b4bda836c3e5ba73f42ba5af19664ad63e10e4a7fbf797df",
-    "xgameruntime.dll": "a281ae4f61bb2c0e836b05acabfc3ad11deca4f8a872f17f886c3fbb3c536dc8",
+    "xgameruntime.dll": "da2a758343cd4bdcc319a3c21cf5f1b8d61c611816de4a3ffa11083ada2d114c",
     "xgameruntime.so": "55fb9d665444dfbb0ab8a55449d72fe91b56ba3d9d8e8530fcb5662066c60bda",
     "classes.json": "55e00780be64cc4ab6c0e49b7db2ee26a32fd37f178c28392340d5e2e47d651b",
-    "bedrock-probe.exe": "41f7cdc1a878a9bbb4ba81b52e3dd0309df57dfe70acc36f6bd931aa013dc35e"
+    "bedrock-probe.exe": "624af3ee1b16b8d758c1088e5b4d50091a47c47b34800fd5dcb1384ab9088a87"
   },
   "allocatorPatch": false
 }
