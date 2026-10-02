@@ -28,23 +28,41 @@ Versions now distinguishes downloaded installations, local snapshots, existing l
 
 The 0.2.1 packaged runtime/proxy also passed all three live probes in a newly provisioned disposable CrossOver environment (40.205 seconds). Release notices include collected locked Rust dependency declarations and original license texts. Public preview publication is distinct from production signing/notarization.
 
-## Managed Bedrock feature branch (incomplete live acceptance)
+## Managed Bedrock feature branch — download/start fix
 
-Bedrock's game-scoped database migration, version gates, persistent protected
-extraction fixtures and bundled provenance checks pass the 37-test Swift suite
-(two pre-existing opt-in live skips), six native-helper tests and 20 MSIXVC tests.
-The native credential bridge passes two tests. Disposable CrossOver runtime
-unit tests pass nine tests with two explicitly live tests ignored; a separate
-Bedrock WinRT/export probe succeeds under CrossOver 26.3. The release app builds
-and passes strict ad-hoc signature verification. These checks are not Bedrock
-gameplay evidence. Original DungeonsView presentation is unchanged, verified by
-source comparison after normalizing game-routing references.
+Microsoft confirmed ownership and package 1.26.5203.0 but supplied no FileHash
+or HashOfHashes. The initial unreviewed-package refusal was resolved by a fresh
+official encrypted-container review, not a disabled integrity gate. The retail
+RSA-PSS/SHA256 signature verified using the public key independently recovered
+from the digest-pinned official GDK. Its signed Merkle root authenticated all
+2,975 hash-table pages and 502,386 stored encrypted content pages. Reserved and
+mutable pages matched the canonical baseline. The reviewed whole-file SHA256
+is recorded in bedrock-package-pin-1.26.5203.json and the helper's revision pin.
 
-The user explicitly authorized fresh managed live acceptance. Microsoft confirmed
-ownership and package 1.26.5203.0; the installer refused the package with
-BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED because there was no acceptable authenticated
-full SHA256 or reviewed Bedrock revision pin. It stopped before download,
-materialization, environment provisioning or game launch. Fresh Bedrock gameplay,
-world save/reopen, controller and multiplayer remain unverified. See BEDROCK.md
-for storage, security and acquisition boundaries. Do not describe this feature
-as having met the full acceptance requirements yet.
+A real normal launcher download then verified the full SHA256 and materialized
+all game data persistently. Live testing exposed Xcode stripping the bundled
+Bedrock Mach-O .so during the Release copy phase; packaging now restores the
+provenance-verified original bytes, re-signs the resource bundle and checks every
+final delivered artifact. The next normal user-initiated install succeeded,
+created a fresh owned CrossOver 26.3 environment, installed GameInput and passed
+WinRT/runtime probes. Bedrock was committed as ready/current with 12,189 hashed
+persistent files. Minecraft.Windows.exe launched directly from the owned version
+folder using the same private Keychain account service. The user explicitly
+confirmed the main menu and real profile. No automated UI screenshot exists:
+the native UI tool reported "native pipe closed".
+
+Dungeons view/runtime/profiles/probes are unchanged by this fix. Its complete
+library entries, selection and retained environments matched the pre-test record
+after Bedrock commit/start, and six existing critical executable/runtime files
+rehash against their prior records. No Dungeons repair or environment replacement
+was performed. The manual Bedrock setup was not a package source and was not
+changed.
+
+Validation: 37 Swift tests without failures (two existing opt-in skips), six
+native-helper tests in both configurations, 20 MSIXVC tests and four synthetic
+pin-review tests. Signature corruption, table/node/page corruption and truncation
+were rejected; final package provenance and strict ad-hoc codesign passed.
+Release inspection commands are disabled. World save/reopen, controller and
+multiplayer acceptance remain unverified; the user-confirmed menu/profile is not
+proof of those separate behaviors. Interrupted launcher-owned stages remain
+visible for explicit cleanup under Bedrock.

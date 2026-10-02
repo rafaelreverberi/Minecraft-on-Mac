@@ -2,9 +2,10 @@
 
 The compatibility profile targets Minecraft for Windows (Store 9NBLGGH2JHXJ,
 Microsoft.MinecraftUWP), executable Minecraft.Windows.exe, version 1.26.5203.0
-(Bedrock 26.52), Apple silicon, CrossOver 26.3.x, D3DMetal. This is the user's
-reported working research baseline, not a claim that this launcher has passed
-live gameplay acceptance. Older versions are rejected. Newer versions are
+(Bedrock 26.52), Apple silicon, CrossOver 26.3.x, D3DMetal. A fresh licensed
+launcher-managed installation and launch now succeeded on the user's Mac; the
+user confirmed the main menu and real profile. World save/reopen, controller and
+multiplayer acceptance remain unverified. Older versions are rejected. Newer versions are
 reported by authenticated package discovery but remain compatibility-unverified
 until a new profile and successful probes exist. Your selected installation is
 preserved when a check or installation fails.
@@ -65,10 +66,13 @@ world data. Back up worlds before the first launch of a newer build.
 
 Microsoft's legacy public CDN may provide no authenticated package digest. Such
 a package requires a reviewed full revision pin before release installation can
-proceed. The launcher deliberately refuses an unpinned HTTP package. The current
-repository has a Dungeons pin; the Bedrock pin must come from an authenticated
-Microsoft response or a separately reviewed official acquisition, not another
-local installation. Never disable certificate or integrity verification to get
+proceed. The launcher deliberately refuses an unpinned HTTP package. The repository pins Dungeons and the separately reviewed Bedrock
+1.26.5203.0 revision. The Bedrock review authenticates the retail RSA-PSS/SHA256
+header using the public key from our pinned official GDK, verifies its full
+Merkle hash tree and every encrypted content page, validates the unused reserved
+and mutable pages against the canonical baseline, then records the whole-file
+SHA256. See bedrock-package-pin-1.26.5203.json and scripts/review_bedrock_pin.py.
+No game data or key from another local installation is used. Never disable certificate or integrity verification to get
 around this boundary.
 
 ## Play and repair
@@ -124,7 +128,7 @@ sign-in; multiplayer requires manual confirmation. Inspect processes/mounts for
 absence of a new RAM volume and verify the executable originates under
 Games/bedrock/Versions. Until recorded, these are unverified, not successful.
 
-### Local verification, 2 October 2026
+### Initial verification, 2 October 2026
 
 - Swift: 37 tests, zero failures, two existing opt-in live tests skipped.
 - Native helper: six tests passed; MSIXVC: 20 tests passed, including protected
@@ -143,7 +147,64 @@ Games/bedrock/Versions. Until recorded, these are unverified, not successful.
   revision pin exists. No game environment was provisioned and no Bedrock game
   launch, world persistence, controller or multiplayer acceptance was performed.
 
-This integration is not yet fully accepted. Resolving the official acquisition
-integrity anchor and completing the fresh installation/gameplay acceptance are
-required before claiming the definition of done. Neither the manual Bedrock
-installation nor its bottle was used as a package source or changed.
+That initial attempt is historical. The reviewed pin and corrected packaging
+below resolved both blockers. Neither the manual Bedrock installation nor its
+bottle was used as a package source or changed.
+
+### Reviewed package pin fix
+
+The original missing-hash refusal was correct for the unreviewed revision but
+could not be solved by reconnecting or signing in again. The baseline revision
+4650c7c5-9163-48e9-9e89-6a5584d9833f now has a reviewed full SHA256:
+af5a72dab1a6e72fb63f931f5d80961b85090142994b93d60d8cd7a3d5a5f6c4.
+Microsoft retail RSA-PSS/SHA256 authenticated the header; 2,975 hash-table pages
+and all 502,386 encrypted content pages verified against its signed root.
+The review downloaded a fresh encrypted 2,069,975,040-byte official container.
+It did not decrypt a research installation or trust an HTTP digest blindly.
+Production downloading still verifies the entire container before decryption.
+The Dungeons pin, compatibility components and environment are unchanged.
+New or changed unreviewed Bedrock revisions still fail safely.
+
+Developer inspection commands (package-audit, sdk-public-audit and
+bedrock-review-download) exist only behind bootstrap-pins. Release packaging
+builds without that feature and refuses engineering bootstrap distribution.
+The review-download command cannot install or decrypt a package. Its downloaded
+SHA256 is explicitly unverified until the independent signature/hash-tree review
+passes. No secrets, game content or proprietary GDK binaries enter the repository.
+The review manifest includes only public metadata, public-key hashes and digests.
+
+The packaging step restores the hashed Bedrock Mach-O Unix library after Xcode's
+Release copy phase, which otherwise strips .so resources despite SwiftPM .copy.
+It re-signs the resource bundle and verifies every final Bedrock artifact after
+all copy/signing steps. A missing Bedrock resource bundle or changed artifact
+fails packaging. `--reuse-compatibility` verifies and retains existing artifacts
+when changing only the installer, preserving Dungeons DLL/probe bytes exactly.
+
+### Successful fresh live acceptance after both fixes
+
+The normal packaged launcher downloaded another complete official container and
+verified the reviewed SHA256 before persistent materialization. Native acquisition
+completed, including licensed components. The corrected package passed runtime
+provenance checks, created a new UUID-owned CrossOver Bedrock environment,
+installed GameInput from this downloaded game, passed WinRT/runtime probes,
+verified 12,189 persistent game/runtime files and atomically selected Bedrock
+1.26.5203.0. The game ran directly from Games/bedrock/Versions/.../Game with the
+private native account service. The user confirmed the main menu and actual
+profile. This confirmation is user-observed; native UI automation returned
+"native pipe closed" and supplied no screenshot.
+
+Dungeons UI/runtime/profile/probes are byte-for-byte unchanged by this fix. Its
+library entries, current selection and retained environments matched the recorded
+pre-test state after the Bedrock commit. All six existing critical Dungeons
+executable/runtime files matched their previously recorded digests. No Dungeons
+repair/reinstallation, manual Bedrock modification or credential migration ran.
+
+Verification: 37 Swift tests, zero failures, two existing opt-in live skips; six
+native-helper tests in both normal and engineering configurations; 20 MSIXVC
+tests; four synthetic pin-review tests across tree depths/run boundaries and
+root/node/content corruption/truncation; actual Microsoft signature verification
+plus changed signature/flags/root/header-byte rejection; final packaged artifact
+SHA256/provenance and strict ad-hoc signature checks. The release helper rejects
+engineering inspection commands. World save/reopen, controller and multiplayer
+remain separate live acceptance boundaries. Interrupted owned staging folders
+remain available for explicit cleanup on the Bedrock page.

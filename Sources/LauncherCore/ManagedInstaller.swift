@@ -40,7 +40,7 @@ public enum ManagedInstaller {
             }
             p.waitUntilExit()
             guard p.terminationStatus == 0, finished, !invalid, pending.isEmpty else {
-                throw LauncherError(failureCode, failureCode == "BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED" ? "Microsoft did not supply a trusted SHA-256 for this Bedrock package revision. A reviewed package pin is required." : "The licensed download or extraction did not complete.", recovery: "Check the connection, Microsoft account and available storage, then retry. Your current version is preserved; interrupted files are listed in Storage.")
+                throw LauncherError(failureCode, failureCode == "BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED" ? "Microsoft did not supply a trusted SHA-256 for this Bedrock package revision. A reviewed package pin is required." : "The licensed download or extraction did not complete.", recovery: failureCode == "BEDROCK_PACKAGE_INTEGRITY_UNVERIFIED" ? "Use a launcher release with a reviewed pin for this Bedrock revision. Retrying sign-in or the connection cannot supply a missing pin. Your current version is preserved; interrupted Bedrock files are listed on the Bedrock page." : "Check the connection, Microsoft account and available storage, then retry. Your current version is preserved; interrupted files are listed in Storage.")
             }
         }.value
     }

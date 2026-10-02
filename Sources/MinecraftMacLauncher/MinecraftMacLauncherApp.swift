@@ -7,7 +7,7 @@ struct MinecraftMacLauncherApp: App {
     @StateObject private var model = AppModel()
     init() { NSApplication.shared.setActivationPolicy(.regular) }
     var body: some Scene {
-        WindowGroup("Minecraft on Mac") { LauncherView().environmentObject(model).frame(minWidth: 900, minHeight: 650).task { await model.load(); NSApplication.shared.activate(ignoringOtherApps: true); if ProcessInfo.processInfo.arguments.contains("--smoke-launch-current") { await model.play() }; if ProcessInfo.processInfo.arguments.contains("--setup") { await model.installAndPlay() }; if ProcessInfo.processInfo.arguments.contains("--repair-current"), let current = model.current { await model.repair(current); if model.error == nil { await model.play() } } } }
+        WindowGroup("Minecraft on Mac") { LauncherView().environmentObject(model).frame(minWidth: 900, minHeight: 650).task { await model.load(); NSApplication.shared.activate(ignoringOtherApps: true); if ProcessInfo.processInfo.arguments.contains("--smoke-launch-current") { await model.play() }; if ProcessInfo.processInfo.arguments.contains("--setup") { await model.installAndPlay() }; if ProcessInfo.processInfo.arguments.contains("--setup-bedrock") { await model.installAndPlay(game: .bedrock) }; if ProcessInfo.processInfo.arguments.contains("--repair-current"), let current = model.current { await model.repair(current); if model.error == nil { await model.play() } } } }
         Settings { SettingsView().environmentObject(model).frame(width: 580, height: 440).padding(24) }
     }
 }
@@ -20,7 +20,7 @@ enum Page: String, CaseIterable, Identifiable {
 }
 struct LauncherView: View {
     @EnvironmentObject var model: AppModel
-    @State private var page: Page? = .dungeons
+    @State private var page: Page? = ProcessInfo.processInfo.arguments.contains("--setup-bedrock") ? .bedrock : .dungeons
     var body: some View {
         NavigationSplitView {
             List(selection: $page) {
@@ -56,7 +56,7 @@ struct LauncherView: View {
                 if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity, alignment: .leading) }
             }.background(Color(nsColor: .windowBackgroundColor))
         }.navigationSplitViewColumnWidth(min: 220, ideal: 245)
-        .onChange(of: page) { _, value in
+        .onChange(of: page, initial: true) { _, value in
             if value == .bedrock { model.selectedGame = .bedrock }
             else if value == .dungeons { model.selectedGame = .dungeons2 }
         }
