@@ -7,7 +7,7 @@ struct MinecraftMacLauncherApp: App {
     @StateObject private var model = AppModel()
     init() { NSApplication.shared.setActivationPolicy(.regular) }
     var body: some Scene {
-        WindowGroup("Minecraft on Mac") { LauncherView().environmentObject(model).frame(minWidth: 900, minHeight: 650).task { await model.load(); NSApplication.shared.activate(ignoringOtherApps: true) } }
+        WindowGroup("Minecraft on Mac") { LauncherView().environmentObject(model).frame(minWidth: 900, minHeight: 650).task { await model.load(); NSApplication.shared.activate(ignoringOtherApps: true); if ProcessInfo.processInfo.arguments.contains("--smoke-launch-current") { await model.play() } } }
         Settings { SettingsView().environmentObject(model).frame(width: 580, height: 440).padding(24) }
     }
 }
@@ -104,8 +104,9 @@ struct DungeonsView: View {
                 BottlePicker()
                 Button("Choose Installation…") { model.chooseInstallation() }.buttonStyle(.borderedProminent).disabled(model.busy || model.selectedBottle.isEmpty)
             }
+            AccountView()
             GroupBox("Fresh install and updates") {
-                Text("Microsoft ownership and package integration is under development. Downloads stay unavailable until the native Keychain broker and verified installation receipts are implemented.").font(.callout).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                Text("The native Microsoft helper can check a real content license and available package version. Fresh game downloads remain gated until a memory-only Windows runtime broker and verified extraction receipts are ready.").font(.callout).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -210,7 +211,14 @@ struct SettingsView: View {
                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
             }
             Toggle("Developer Mode", isOn: $model.developerMode)
-            Text("No telemetry. Credentials are never included in diagnostics. Production account management is pending a secure native broker.").font(.caption).foregroundStyle(.secondary)
+            GroupBox("Dependencies") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(DependencyManager.inspect(developerMode: model.developerMode)) { dependency in
+                        HStack { Image(systemName: dependency.available ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(dependency.available ? .green : .secondary); Text(dependency.name); Spacer(); Text(dependency.requiredForPlay ? "Play" : "Development").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }.padding(8)
+            }
+            Text("No telemetry. Credentials are never included in diagnostics. Native Microsoft credentials use a separate macOS Keychain namespace. The reference game retains its existing login.").font(.caption).foregroundStyle(.secondary)
         }
         .confirmationDialog("Clear download cache?", isPresented: $cacheConfirmation, titleVisibility: .visible) {
             Button("Clear Cache", role: .destructive) { Task { await model.perform { try await model.store?.clearCache(); try await model.diagnostics?.record(.cacheCleared) } } }
@@ -239,5 +247,28 @@ struct DiagnosticsView: View {
                 }
             }
         }
+    }
+}
+
+struct AccountView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var signOut = false
+    var body: some View {
+        GroupBox("Microsoft package account") {
+            VStack(alignment: .leading, spacing: 12) {
+                LabeledContent("Account", value: model.account?.gamertag ?? (model.account?.signedIn == true ? "Connected" : "Not checked"))
+                LabeledContent("Content license", value: model.account?.entitlement == "verified" ? "Verified by Microsoft" : "Not verified")
+                LabeledContent("Available package", value: model.account?.availableVersion ?? "Not checked")
+                HStack {
+                    Button("Sign In") { Task { await model.accountOperation(.login) } }
+                    Button("Check Ownership / Updates") { Task { await model.accountOperation(.check) } }
+                    Button("Sign Out…") { signOut = true }
+                }.disabled(model.busy || model.running)
+                Text("This native account uses macOS Keychain. It is separate from the reference game's existing login until the secure runtime migration is complete.").font(.caption).foregroundStyle(.secondary)
+            }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .confirmationDialog("Sign out of the native package account?", isPresented: $signOut, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { Task { await model.accountOperation(.logout) } }
+        } message: { Text("Removes only this launcher's Microsoft Keychain entries. The working game's current login stays intact. Sign in again to switch the native package account.") }
     }
 }

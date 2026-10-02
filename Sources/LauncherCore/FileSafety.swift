@@ -16,8 +16,9 @@ public enum FileSafety {
         guard !parts.isEmpty, !relative.hasPrefix("/"), parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\\") }) else {
             throw LauncherError("UNSAFE_PATH", "A manifest path is invalid.")
         }
-        let target = root.appendingPathComponent(relative).standardizedFileURL
-        guard target.path.hasPrefix(root.standardizedFileURL.path + "/") else { throw LauncherError("UNSAFE_PATH", "Path escaped installation.") }
+        guard root.isFileURL, !root.pathComponents.contains(".."), !root.pathComponents.contains(".") else { throw LauncherError("UNSAFE_PATH", "Installation root is invalid.") }
+        let target = root.appendingPathComponent(relative)
+        guard target.path.hasPrefix(root.path + "/") else { throw LauncherError("UNSAFE_PATH", "Path escaped installation.") }
         var cursor = URL(fileURLWithPath: "/")
         for part in target.pathComponents.dropFirst() {
             cursor.appendPathComponent(part)

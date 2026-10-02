@@ -12,7 +12,13 @@ public actor Diagnostics {
     }
     private var events: [Event] = []
     private let root: URL
-    public init(root: URL) { self.root = root }
+    public init(root: URL) {
+        self.root = root
+        if let url = try? FileSafety.child("Logs/events.json", of: root), let data = try? Data(contentsOf: url),
+           data.count <= 1024 * 1024, let saved = try? JSONDecoder().decode([Event].self, from: data) {
+            events = Array(saved.suffix(200))
+        }
+    }
     public func record(_ code: Code, exitCode: Int32? = nil) throws {
         events.append(Event(date: Date(), code: code, exitCode: exitCode)); events = Array(events.suffix(200))
         let url = try FileSafety.child("Logs/events.json", of: root)

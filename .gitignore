@@ -10,3 +10,5 @@ build/
 Tools/
 Games/
 Cache/
+
+NativeHelper/target/

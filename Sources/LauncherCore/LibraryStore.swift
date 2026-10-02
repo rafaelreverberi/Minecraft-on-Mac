@@ -4,6 +4,8 @@ import Darwin
 public actor LibraryStore {
     public let root: URL
     private let profile: CompatibilityProfile
+    private let crossOver: CrossOver?
+    private let runtimeTests: Bool
     private var database: LibraryDatabase
     private var busy = false
     private var lockFD: Int32 = -1
@@ -12,8 +14,8 @@ public actor LibraryStore {
     public static var defaultRoot: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Minecraft on Mac")
     }
-    public init(root: URL = LibraryStore.defaultRoot, profile: CompatibilityProfile? = nil) throws {
-        self.root = root.standardizedFileURL; self.profile = try profile ?? .bundled()
+    public init(root: URL = LibraryStore.defaultRoot, profile: CompatibilityProfile? = nil, crossOver: CrossOver? = .detect(), runtimeTests: Bool = true) throws {
+        self.root = root; self.profile = try profile ?? .bundled(); self.crossOver = crossOver; self.runtimeTests = runtimeTests
         _ = try FileSafety.child("library.json", of: root)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let fd = Darwin.open(root.appendingPathComponent(".library-lock").path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
@@ -31,6 +33,8 @@ public actor LibraryStore {
                 let path = try FileSafety.child(folder, of: root)
                 try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             }
+            let cacheReceipt = try FileSafety.child("cache-manifest.json", of: root)
+            if !FileManager.default.fileExists(atPath: cacheReceipt.path) { try FileSafety.write([String:String](), to: cacheReceipt) }
             self.lockFD = fd
         } catch {
             flock(fd, LOCK_UN); close(fd)
@@ -74,7 +78,7 @@ public actor LibraryStore {
                 throw LauncherError("COMPATIBILITY_FAILED", "Compatibility files no longer match the bundled profile.")
             }
         }
-        guard let crossOver = CrossOver.detect() else { throw LauncherError("CROSSOVER_MISSING", "Install CrossOver to use Dungeons.") }
+        guard let crossOver else { throw LauncherError("CROSSOVER_MISSING", "Install CrossOver to use Dungeons.") }
         let bottle = try crossOver.bottleURL(install.bottle)
         let runtimeHash = profile.hashes["Dungeons/Binaries/WinGDK/xgameruntime.dll"]
         for location in [try FileSafety.child("xgameruntime.dll", of: install.path), bottle.appendingPathComponent("drive_c/windows/system32/xgameruntime.dll")] {
@@ -82,6 +86,7 @@ public actor LibraryStore {
                 throw LauncherError("RUNTIME_MISMATCH", "The game root or bottle runtime differs from the tested configuration.", recovery: "Repair the bottle in CrossOver. Launcher does not overwrite a user-owned bottle.")
             }
         }
+        if runtimeTests { try RuntimeSelfTests.run(install, crossOver: crossOver, progress: progress) }
         verified.state = .ready; verified.lastSuccessfulTest = Date(); verified.compatibilityProfile = profile.id
         if verified.hashes.isEmpty { verified.hashes = profile.hashes }
         progress(.init("Verified", completed: Int64(hashes.count), total: Int64(hashes.count)))
@@ -93,7 +98,7 @@ public actor LibraryStore {
             throw LauncherError("ALREADY_REGISTERED", "This installation is already in the library.")
         }
         try FileSafety.validateTree(path)
-        var install = Installation(version: try FileSafety.version(path), path: path.standardizedFileURL, bottle: bottle, managed: false)
+        var install = Installation(version: try FileSafety.version(path), path: path, bottle: bottle, managed: false)
         install = try verify(install, progress: progress)
         progress(.init("Measuring storage")); install.diskBytes = try FileSafety.diskUsage(path)
         var next = database; next.installations.append(install); if next.current == nil { next.current = install.id }
@@ -181,10 +186,10 @@ public actor LibraryStore {
         guard database.current != id else { throw LauncherError("CURRENT_VERSION", "Select another version or clear the current selection first.") }
         if install.managed {
             let expected = try FileSafety.child("\(install.version)-\(install.id.uuidString)", of: versionsRoot)
-            guard install.path.standardizedFileURL == expected.appendingPathComponent("Game").standardizedFileURL else {
+            guard install.path.path == expected.appendingPathComponent("Game").path else {
                 throw LauncherError("MANIFEST_MISMATCH", "Managed path does not match its recorded version.")
             }
-            let receipt = try JSONDecoder().decode(Installation.self, from: Data(contentsOf: expected.appendingPathComponent("metadata.json")))
+            let receipt = try JSONDecoder().decode(Installation.self, from: Data(contentsOf: FileSafety.child("metadata.json", of: expected)))
             guard receipt.id == id, receipt.managed else { throw LauncherError("MANIFEST_MISMATCH", "Installation receipt does not match.") }
             try FileSafety.validateTree(expected)
             // Commit removal before physical cleanup; an interruption leaves an orphan, never a usable partial version.
@@ -199,14 +204,28 @@ public actor LibraryStore {
         try checkIdle()
         guard name.hasPrefix(".staging-"), UUID(uuidString: String(name.dropFirst(9))) != nil else { throw LauncherError("UNSAFE_PATH", "Invalid staging directory.") }
         let path = try FileSafety.child(name, of: versionsRoot)
-        let receipt = try JSONDecoder().decode(Installation.self, from: Data(contentsOf: path.appendingPathComponent("metadata.json")))
+        let receipt = try JSONDecoder().decode(Installation.self, from: Data(contentsOf: FileSafety.child("metadata.json", of: path)))
         guard receipt.managed, name == ".staging-\(receipt.id.uuidString)" else { throw LauncherError("MANIFEST_MISMATCH", "Temporary installation receipt does not match.") }
         try FileSafety.validateTree(path); try fm.removeItem(at: path)
     }
     public func clearCache() throws {
         try checkIdle()
         let path = try FileSafety.child("Cache", of: root); try FileSafety.validateTree(path)
-        for item in try fm.contentsOfDirectory(at: path, includingPropertiesForKeys: nil) { try fm.removeItem(at: item) }
+        let receipt = try FileSafety.child("cache-manifest.json", of: root)
+        let files = try JSONDecoder().decode([String:String].self, from: Data(contentsOf: receipt))
+        let walk = fm.enumerator(at: path, includingPropertiesForKeys: [.isRegularFileKey])
+        while let item = walk?.nextObject() as? URL {
+            guard try item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            let relative = String(item.path.dropFirst(path.path.count + 1))
+            guard let expected = files[relative], try FileSafety.hash(item) == expected else {
+                throw LauncherError("CACHE_UNTRACKED", "Cache contains an untracked or changed file.", recovery: "Inspect the Cache folder. Only manifest-recorded downloads can be removed by the launcher.")
+            }
+        }
+        for relative in files.keys {
+            let item = try FileSafety.child(relative, of: path)
+            if fm.fileExists(atPath: item.path) { try fm.removeItem(at: item) }
+        }
+        try FileSafety.write([String:String](), to: receipt)
     }
     public func repairCompatibility(_ id: UUID, referenceID: UUID, progress: @Sendable (OperationProgress) -> Void = { _ in }) throws {
         try checkIdle(); busy = true; defer { busy = false }
@@ -218,7 +237,11 @@ public actor LibraryStore {
         var install = database.installations[index]
         guard install.version == profile.version else { throw LauncherError("COMPATIBILITY_UNVERIFIED", "No repair profile for this build.") }
         let expectedParent = try FileSafety.child("\(install.version)-\(id.uuidString)", of: versionsRoot)
-        guard install.path == expectedParent.appendingPathComponent("Game") else { throw LauncherError("MANIFEST_MISMATCH", "Repair path does not match its manifest.") }
+        guard install.path.path == expectedParent.appendingPathComponent("Game").path else { throw LauncherError("MANIFEST_MISMATCH", "Repair path does not match its manifest.") }
+        install.state = .testing
+        var pending = database; pending.installations[index] = install; try persist(pending)
+        try FileSafety.write(install, to: expectedParent.appendingPathComponent("metadata.json"))
+        do {
         // Per-file atomic replacement: interruption is recoverable; no saves or bottle files touched.
         for (relative, expected) in profile.hashes where relative.hasSuffix(".dll") {
             let destination = try FileSafety.child(relative, of: install.path)
@@ -231,10 +254,14 @@ public actor LibraryStore {
             guard try FileSafety.hash(temp) == expected else { throw LauncherError("REPAIR_SOURCE_CHANGED", "Repair source changed during copying.") }
             guard Darwin.rename(temp.path, destination.path) == 0 else { throw LauncherError("REPAIR_FAILED", "Could not atomically replace compatibility file.") }
         }
-        do { install = try verify(install, progress: progress) } catch {
-            var next = database; next.installations[index].state = .failed; try persist(next); throw error
-        }
+        install = try verify(install, progress: progress)
         try FileSafety.write(install, to: expectedParent.appendingPathComponent("metadata.json"))
         var next = database; next.installations[index] = install; try persist(next)
+        } catch {
+            install.state = .failed
+            var next = database; next.installations[index] = install
+            try? FileSafety.write(install, to: expectedParent.appendingPathComponent("metadata.json"))
+            try persist(next); throw error
+        }
     }
 }

@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(developerMode, forKey: "developerMode") }
     }
     @Published var selectedBottle = ""
+    @Published var account: AccountStatus?
+    let nativeAccount = NativeAccount()
     let processes = GameProcess()
     var store: LibraryStore?
     var diagnostics: Diagnostics?
@@ -43,7 +45,7 @@ final class AppModel: ObservableObject {
         crossOver = CrossOver.detect()
     }
     func progressHandler() -> @Sendable (OperationProgress) -> Void {
-        { [weak self] update in Task { @MainActor in self?.progress = update } }
+        { [weak self] update in Task { @MainActor in if let self, self.busy { self.progress = update } } }
     }
     func perform(_ operation: @MainActor () async throws -> Void) async {
         guard !busy, !running else { return }
@@ -62,6 +64,7 @@ final class AppModel: ObservableObject {
     }
     func play() async {
         guard let current, let store, let crossOver, !running, !busy else { return }
+        error = nil
         await perform {
             _ = try await store.reverify(current.id, progress: self.progressHandler())
             try await self.diagnostics?.record(.installationVerified)
@@ -101,6 +104,14 @@ final class AppModel: ObservableObject {
     func remove(_ install: Installation) async {
         guard let store else { return }
         await perform { try await store.remove(install.id); try await self.diagnostics?.record(.versionRemoved) }
+    }
+    func accountOperation(_ command: NativeAccount.Command) async {
+        // Clear old ownership evidence immediately, including after a failed new check.
+        account = nil
+        await perform {
+            self.progress = .init(command == .login ? "Waiting for Microsoft sign-in" : "Checking Microsoft account")
+            self.account = try await self.nativeAccount.request(command)
+        }
     }
     func exportDiagnostics() {
         let panel = NSSavePanel(); panel.nameFieldStringValue = "MinecraftMac-diagnostics.json"
