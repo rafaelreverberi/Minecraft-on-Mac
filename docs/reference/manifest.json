@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "date": "2026-10-02",
+  "sourceFiles": {
+    "compatibility/README.md": "12b7a0ddac48cf014b019c5597985af2e11e6347bd7fa8564b1b1c9a787e6d55",
+    "compatibility/launch.py": "d8e3f615455f2a584120f4e553795ac788de5603e38ac00dee1a294548fe0bd3",
+    "compatibility/manage.py": "f1275bb0ec0c0ed16f46812afe6c907d45fd8b233d784c16fc26c9a1226043c2",
+    "compatibility/test_token_abi.py": "6c20e716adfdd7aa27fe9ebd4bd761462666c23d407bbff0b0dda19528965f7a",
+    "compatibility/token-abi-tests.rs": "bab356854ec43c0e32a35046558e531a30f655aec8915911d2557115999e210d",
+    "xcurl2504-framing-test/src/gdk_compat.c": "a0b86ee0bdd1caf55ce7537d54f50580d1e8f28962dbbf196848378b4812b4c2",
+    "xcurl2504-framing-test/scripts/build.py": "d82e0f02120cf955ce66c9983eb1d5e56fc8e00b8e82ba2fed87e298add36fe2",
+    "xcurl2504-framing-test/tests/gdk_exports.c": "a5e2da20200526b5f819ec3704f7dfbc84bbdf688b3cc97fa2b7b814674e8483",
+    "xgameruntime-rs-pr12/src/user.rs": "3dc401712d159f2aefa74a8fcdebd6256db9135385713040ba137d309587d76d",
+    "xgameruntime-rs-pr12/Cargo.toml": "9df0ac720eb2ae3815cb0ab672a62af784bda007074ad82da447b35b11c07b78",
+    "xodus/crates/xodus-cli/src/commands/streaming.rs": "859cac0e9cb962d43db6b9fed4d1f75f1610c590171a7f29ee1fc0dd076ba3c1",
+    "xodus/crates/msixvc/src/xvd.rs": "f2738490c43022ef1f2207e0fe42e5ae1c991a9bb735fece4d71d9a374808e8c"
+  },
+  "gameFiles": {
+    "Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe": "4d8de2e84a8a0c7a753d36082ca059388161e4e75fbd45164dd300da14adcb12",
+    "Dungeons/Binaries/WinGDK/XCurl.dll": "ebab17d3b96356134b283faac615917feb21541357620a04f6bf7a1a0b63597e",
+    "Dungeons/Binaries/WinGDK/XCurl2504.dll": "cd41c0a777861bee4eaf36e6cd8a26ffadaf78a5e4b0f7eb47d34768a3091d80",
+    "Dungeons/Binaries/WinGDK/xgameruntime.dll": "a1d14d5bd93975ed969361d2a0f75bd45e1979f7a8f6ae423a49ae9ad37c893f",
+    "Dungeons/Binaries/WinGDK/xgameruntime.gdk.dll": "815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59",
+    "Dungeons/Binaries/WinGDK/libHttpClient.GDK.dll": "ca94296a372096153806422f5236144c695dfa9cd77607ef1761afc0e5a184b1"
+  },
+  "launch": {
+    "executable": "Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe",
+    "bottle": "Dungeons2Xbox",
+    "dllOverrides": "xgameruntime=n;XCurl=n",
+    "debugmsg": "-all",
+    "environment": {
+      "XCURL_COMPAT_IDENTITY": "1"
+    },
+    "removeEnvironment": [
+      "WINE_DLL_FILE_MAP",
+      "XGR_NO_DELEGATE",
+      "RUST_LOG",
+      "XODUS_LOG"
+    ]
+  }
+}

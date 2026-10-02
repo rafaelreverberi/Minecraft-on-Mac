@@ -1,0 +1,12 @@
+.build/
+build/
+.DS_Store
+*.dll
+*.exe
+*.msixvc
+*.log
+*.ron
+.env*
+Tools/
+Games/
+Cache/
