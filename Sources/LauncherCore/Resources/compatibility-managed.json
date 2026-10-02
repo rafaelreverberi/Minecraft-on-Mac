@@ -1,0 +1,14 @@
+{
+  "id": "dungeons2-managed-1.1.1-r3",
+  "gameId": "dungeons2",
+  "version": "1.1.1.0",
+  "revision": 3,
+  "hashes": {
+    "Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe": "4d8de2e84a8a0c7a753d36082ca059388161e4e75fbd45164dd300da14adcb12",
+    "Dungeons/Binaries/WinGDK/XCurl.dll": "23b12fd73e624cff51bd7aee6a9e15e52512a44ddb51586a9bd31396fe0c93f3",
+    "Dungeons/Binaries/WinGDK/XCurl2504.dll": "cd41c0a777861bee4eaf36e6cd8a26ffadaf78a5e4b0f7eb47d34768a3091d80",
+    "Dungeons/Binaries/WinGDK/xgameruntime.dll": "cfe76317f86abf7b6489a800be51903d8deb0d23fd37cf4adb483fb80b34bb93",
+    "Dungeons/Binaries/WinGDK/xgameruntime.gdk.dll": "815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59",
+    "Dungeons/Binaries/WinGDK/libHttpClient.GDK.dll": "ca94296a372096153806422f5236144c695dfa9cd77607ef1761afc0e5a184b1"
+  }
+}

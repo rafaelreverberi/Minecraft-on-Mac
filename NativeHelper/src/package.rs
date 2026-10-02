@@ -104,3 +104,21 @@ pub async fn get_packages(
     };
     Ok(package)
 }
+
+/// Xbox Packages PC uses `major.minor.build.revision.package-GUID`, not just four numbers.
+pub fn normalize_version(raw: &str) -> Result<(String, Option<String>), std::io::Error> {
+    let parts: Vec<_> = raw.splitn(5, '.').collect();
+    if !(4..=5).contains(&parts.len()) { return Err(std::io::Error::other("Package version invalid")); }
+    let numbers: Result<Vec<u16>,_> = parts[..4].iter().map(|p| p.parse()).collect();
+    let numbers = numbers.map_err(|_|std::io::Error::other("Package version invalid"))?;
+    let revision = if parts.len()==5 { Some(uuid::Uuid::parse_str(parts[4]).map_err(|_|std::io::Error::other("Package revision invalid"))?.to_string()) } else { None };
+    Ok((numbers.iter().map(u16::to_string).collect::<Vec<_>>().join("."), revision))
+}
+#[cfg(test)] mod version_tests {
+    use super::*;
+    #[test] fn xbox_composite_version_is_not_confused_with_build_number() {
+        let (version,revision)=normalize_version("1.1.1.0.55640c99-2b99-4abd-ba3b-ed4198e427d3").unwrap();
+        assert_eq!(version,"1.1.1.0");assert_eq!(revision.as_deref(),Some("55640c99-2b99-4abd-ba3b-ed4198e427d3"));
+        assert!(normalize_version("1.1.1.0.untrusted").is_err());assert!(normalize_version("1.1.1").is_err());
+    }
+}

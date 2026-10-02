@@ -5,6 +5,8 @@ use serde::Serialize;
 use std::panic::AssertUnwindSafe;
 use xodus::tokens::TokenManager;
 use xodus::models::secrets::Token;
+mod acquire;
+mod bridge;
 mod license;
 mod package;
 mod webview;
@@ -20,10 +22,11 @@ struct Reply {
     gamertag: Option<String>,
     entitlement: &'static str,
     available_version: Option<String>,
+    available_revision: Option<String>,
     error_code: Option<&'static str>,
 }
 impl Reply {
-    fn signed_out() -> Self { Self { schema:1, status:"ok", signed_in:false, gamertag:None, entitlement:"unknown", available_version:None, error_code:None } }
+    fn signed_out() -> Self { Self { schema:1, status:"ok", signed_in:false, gamertag:None, entitlement:"unknown", available_version:None, available_revision:None, error_code:None } }
     fn failure(code: &'static str) -> Self { let mut r = Self::signed_out(); r.status="error"; r.error_code=Some(code); r }
 }
 #[tokio::main]
@@ -31,6 +34,16 @@ async fn main() {
     // Upstream panics may include response contents. Never emit their payload.
     std::panic::set_hook(Box::new(|_| {}));
     let command = std::env::args().nth(1).unwrap_or_default();
+    if command == "install" {
+        let stage=std::env::args().nth(2).unwrap_or_default();
+        let result=AssertUnwindSafe(acquire::install(std::path::Path::new(&stage))).catch_unwind().await;
+        if !matches!(result,Ok(Ok(()))) { println!("{{\"schema\":1,\"type\":\"error\",\"code\":\"INSTALL_FAILED\"}}"); std::process::exit(1); } return;
+    }
+    if command == "sdk-test" {
+        let args:Vec<_>=std::env::args().collect();
+        if args.len()!=4 || acquire::extract_sdk(std::path::Path::new(&args[2]),std::path::Path::new(&args[3])).is_err(){std::process::exit(1)}; return;
+    }
+    if command == "bridge" { let _ = bridge::run(); return; }
     let reply = AssertUnwindSafe(run(&command)).catch_unwind().await.unwrap_or_else(|_| Reply::failure("MICROSOFT_SERVICE_FAILED"));
     println!("{}", serde_json::to_string(&reply).unwrap());
 }
@@ -64,21 +77,20 @@ async fn run(command: &str) -> Reply {
     let xbox = xodus::api::xbox::run(&client, device, user, "http://xboxlive.com").await;
     let gamertag = xbox.gamertag().filter(|s| s.len() <= 256 && !s.chars().any(char::is_control)).map(str::to_string);
     if command == "login" {
-        return Reply { schema:1, status:"ok", signed_in:true, gamertag, entitlement:"unknown", available_version:None, error_code:None };
+        return Reply { schema:1, status:"ok", signed_in:true, gamertag, entitlement:"unknown", available_version:None, available_revision:None, error_code:None };
     }
     let content_id = match package::get_content_id(&client, STORE_ID.to_string(), Some("neutral".into())).await {
         Ok(id) => id, Err(_) => return Reply::failure("STORE_LOOKUP_FAILED")
     };
     // Real content license authorization comes BEFORE package lookup. No game/CDN downloads here.
     if license::get_license(&client, &tokens, content_id.clone(), "neutral".into()).await.is_err() {
-        return Reply { schema:1, status:"error", signed_in:true, gamertag, entitlement:"unknown", available_version:None, error_code:Some("ENTITLEMENT_NOT_CONFIRMED") };
+        return Reply { schema:1, status:"error", signed_in:true, gamertag, entitlement:"unknown", available_version:None, available_revision:None, error_code:Some("ENTITLEMENT_NOT_CONFIRMED") };
     }
-    let package = match package::get_packages(&client, &tokens, content_id).await {
+    let package = match package::get_packages(&client, &tokens, content_id.clone()).await {
         Ok(p) => p, Err(_) => return Reply::failure("PACKAGE_LOOKUP_FAILED")
     };
-    let version = package.version;
-    if version.is_empty() || version.len() > 64 || !version.chars().all(|c| c.is_ascii_digit() || c == '.') { return Reply::failure("PACKAGE_VERSION_INVALID"); }
-    Reply { schema:1, status:"ok", signed_in:true, gamertag, entitlement:"verified", available_version:Some(version), error_code:None }
+    let (version, revision) = match package::normalize_version(&package.version) { Ok(v) => v, Err(_) => return Reply::failure("PACKAGE_VERSION_INVALID") };
+    Reply { schema:1, status:"ok", signed_in:true, gamertag, entitlement:"verified", available_version:Some(version), available_revision:revision, error_code:None }
 }
 
 #[cfg(test)]
@@ -94,6 +106,6 @@ mod tests {
     fn reply_has_only_allowlisted_fields() {
         let json = serde_json::to_value(Reply::signed_out()).unwrap();
         let keys: std::collections::BTreeSet<_> = json.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["schema", "status", "signedIn", "gamertag", "entitlement", "availableVersion", "errorCode"].into_iter().collect());
+        assert_eq!(keys, ["schema", "status", "signedIn", "gamertag", "entitlement", "availableVersion", "availableRevision", "errorCode"].into_iter().collect());
     }
 }

@@ -7,10 +7,11 @@ public struct AccountStatus: Codable, Sendable {
     public let gamertag: String?
     public let entitlement: String
     public let availableVersion: String?
+    public let availableRevision: String?
     public let errorCode: String?
     public static func decode(_ data: Data) throws -> Self {
         guard data.count <= 16384 else { throw LauncherError("HELPER_PROTOCOL_FAILED", "Account helper exceeded its response limit.") }
-        let allowedFields: Set<String> = ["schema", "status", "signedIn", "gamertag", "entitlement", "availableVersion", "errorCode"]
+        let allowedFields: Set<String> = ["schema", "status", "signedIn", "gamertag", "entitlement", "availableVersion", "availableRevision", "errorCode"]
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String:Any], Set(object.keys).isSubset(of: allowedFields) else {
             throw LauncherError("HELPER_PROTOCOL_FAILED", "Account helper returned unexpected fields.")
         }
@@ -20,6 +21,7 @@ public struct AccountStatus: Codable, Sendable {
         }
         let allowedCodes = ["COMMAND_INVALID", "KEYCHAIN_UNAVAILABLE", "SIGN_OUT_FAILED", "NETWORK_UNAVAILABLE", "MICROSOFT_SERVICE_FAILED", "LOGIN_CANCELLED", "SIGN_IN_REQUIRED", "DEVICE_AUTH_REQUIRED", "STORE_LOOKUP_FAILED", "ENTITLEMENT_NOT_CONFIRMED", "PACKAGE_LOOKUP_FAILED", "PACKAGE_VERSION_INVALID"]
         guard result.schema == 1, ["ok", "error"].contains(result.status), ["unknown", "verified"].contains(result.entitlement),
+              result.availableRevision.map({ UUID(uuidString: $0) != nil }) ?? true,
               result.errorCode.map({ allowedCodes.contains($0) }) ?? true,
               result.gamertag.map({ $0.utf8.count <= 256 && !$0.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) }) ?? true,
               result.availableVersion.map({ !$0.isEmpty && $0.count <= 64 && $0.allSatisfy { $0.isASCII && ($0.isNumber || $0 == ".") } }) ?? true,
@@ -33,9 +35,7 @@ public actor NativeAccount {
     public enum Command: String, Sendable { case status, login, logout, check }
     private var busy = false
     public init() {}
-    public func request(_ command: Command) async throws -> AccountStatus {
-        guard !busy else { throw LauncherError("ACCOUNT_BUSY", "An account operation is already running.") }
-        busy = true; defer { busy = false }
+    public nonisolated static func helperURL() throws -> URL {
         guard let executable = Bundle.main.executableURL else { throw LauncherError("HELPER_MISSING", "Use the packaged macOS app for account operations.") }
         let helper = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Helpers/minecraft-native-helper")
         guard let digestURL = Bundle.module.url(forResource: "helper-sha256", withExtension: "txt", subdirectory: "Resources"),
@@ -43,6 +43,12 @@ public actor NativeAccount {
               expected.count == 64, (try? FileSafety.hash(helper)) == expected else {
             throw LauncherError("HELPER_INTEGRITY_FAILED", "The native Microsoft helper is missing or differs from the bundled digest.", recovery: "Rebuild the app or restore a verified release. No credentials were accessed.")
         }
+        return helper
+    }
+    public func request(_ command: Command) async throws -> AccountStatus {
+        guard !busy else { throw LauncherError("ACCOUNT_BUSY", "An account operation is already running.") }
+        busy = true; defer { busy = false }
+        let helper = try Self.helperURL()
         let data = try await Task.detached {
             let process = Process(); let pipe = Pipe()
             process.executableURL = helper; process.arguments = [command.rawValue]

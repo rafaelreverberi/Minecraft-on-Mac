@@ -133,6 +133,19 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: game.path))
         db = await store.snapshot(); XCTAssertNil(db.current); XCTAssertTrue(db.installations.isEmpty)
     }
+    func testOptionalRedistributableArchitectureStillRequiresIntegrity() async throws {
+        let (root, game, crossover, profile) = try fakeReference()
+        let extras = game.appendingPathComponent("Engine/Extras/Redist/en-us")
+        try FileManager.default.createDirectory(at: extras, withIntermediateDirectories: true)
+        let installer = extras.appendingPathComponent("vc_redist.arm64.exe")
+        try Data("optional installer fixture".utf8).write(to: installer)
+        let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false, isGameRunning: { false })
+        var installation = try await store.registerExternal(game, bottle: "TestBottle")
+        installation.hashes["Engine/Extras/Redist/en-us/vc_redist.arm64.exe"] = try FileSafety.hash(installer)
+        _ = try await store.verify(installation)
+        try Data("tampered installer".utf8).write(to: installer)
+        do { _ = try await store.verify(installation); XCTFail("Changed optional installer accepted") } catch {}
+    }
     func testUnknownVersionCannotReplaceCurrent() async throws {
         let (root, game, crossover, profile) = try fakeReference()
         let store = try LibraryStore(root: root, profile: profile, crossOver: crossover, runtimeTests: false, isGameRunning: { false })
@@ -196,6 +209,49 @@ final class CoreTests: XCTestCase {
         }
         XCTAssertEqual(try FileSafety.hash(game.appendingPathComponent("MicrosoftGame.config")), before)
         let db = await store.snapshot(); XCTAssertTrue(db.installations.isEmpty)
+    }
+
+    func testManagedProfileBindsNewRuntimeAndOriginalExecutable() throws {
+        let old = try CompatibilityProfile.bundled(), managed = try CompatibilityProfile.managed()
+        XCTAssertEqual(managed.version, old.version)
+        XCTAssertEqual(managed.hashes["Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe"], old.hashes["Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe"])
+        XCTAssertNotEqual(managed.hashes["Dungeons/Binaries/WinGDK/xgameruntime.dll"], old.hashes["Dungeons/Binaries/WinGDK/xgameruntime.dll"])
+        XCTAssertTrue(managed.id.hasPrefix("dungeons2-managed-"))
+    }
+    func testManagedBottleCannotOverwriteUnownedEnvironment() async throws {
+        let root = try temp(), id = UUID(); let name = "MinecraftMac-\(id.uuidString)"
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+        let crossover = CrossOver(wine: root.appendingPathComponent("absent"), bottlesRoot: root)
+        do { try await ManagedInstaller.provisionBottle(name, crossOver: crossover, components: root, runtime: root, owner: id); XCTFail("Unowned environment accepted") } catch {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(name + "/minecraftmac-owner.json").path))
+    }
+    func testLiveManagedEnvironmentProvisioning() async throws {
+        guard ProcessInfo.processInfo.environment["MML_LIVE_MANAGED_TEST"] == "1" else { throw XCTSkip("Explicit opt-in for a new disposable CrossOver environment") }
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let root = try temp(), components = root.appendingPathComponent("Components")
+        try FileManager.default.createDirectory(at: components, withIntermediateDirectories: true)
+        let installer = URL(fileURLWithPath: "/tmp/mml-vc-redist.exe")
+        try FileManager.default.copyItem(at: installer, to: components.appendingPathComponent("VC_redist.x64.exe"))
+        let id = UUID(); let name = "MinecraftMac-\(id.uuidString)"
+        let crossover = try XCTUnwrap(CrossOver.detect())
+        let runtime = repo.appendingPathComponent("Sources/LauncherCore/Resources/Managed/xgameruntime.dll")
+        try await ManagedInstaller.provisionBottle(name, crossOver: crossover, components: components, runtime: runtime, owner: id)
+        let bottle = try crossover.bottleURL(name)
+        defer {
+            // Only the fixture just created with this test's UUID. No saves/account or reference bottle.
+            if let receipt = try? JSONDecoder().decode([String:String].self, from: Data(contentsOf: bottle.appendingPathComponent("minecraftmac-owner.json"))), receipt["owner"] == id.uuidString { try? FileManager.default.removeItem(at: bottle) }
+        }
+        XCTAssertEqual(try FileSafety.hash(bottle.appendingPathComponent("drive_c/windows/system32/xgameruntime.dll")), try FileSafety.hash(runtime))
+        let game = root.appendingPathComponent("Game"), bin = game.appendingPathComponent("Dungeons/Binaries/WinGDK")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let legacy = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Games/MinecraftDungeons2-FullyDecrypted/Dungeons/Binaries/WinGDK")
+        for name in ["XCurl.dll", "xgameruntime.dll", "XCurl2504.dll", "xgameruntime.gdk.dll", "libHttpClient.GDK.dll"] {
+            let source = ["XCurl.dll", "xgameruntime.dll"].contains(name) ? repo.appendingPathComponent("Sources/LauncherCore/Resources/Managed/" + name) : legacy.appendingPathComponent(name)
+            try FileManager.default.copyItem(at: source, to: bin.appendingPathComponent(name))
+        }
+        let install = Installation(version: "1.1.1.0", path: game, bottle: name, managed: true, compatibilityProfile: try CompatibilityProfile.managed().id)
+        try RuntimeSelfTests.run(install, crossOver: crossover)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bottle.appendingPathComponent("drive_c/users/crossover/.xodus-keyring.ron").path))
     }
 
 }

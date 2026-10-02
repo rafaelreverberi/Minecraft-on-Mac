@@ -43,6 +43,7 @@ public struct Installation: Codable, Identifiable, Sendable, Equatable {
     public var state: InstallState
     public var hashes: [String: String]
     public var compatibilityProfile: String
+    public var packageRevision: String?
     public let installedAt: Date
     public var lastSuccessfulTest: Date?
     public var diskBytes: Int64
@@ -66,6 +67,10 @@ public struct CompatibilityProfile: Codable, Sendable {
     public let version: String
     public let revision: Int
     public let hashes: [String: String]
+    public static func managed() throws -> Self {
+        guard let url = Bundle.module.url(forResource: "compatibility-managed", withExtension: "json", subdirectory: "Resources") else { throw LauncherError("CATALOG_MISSING", "Managed compatibility profile is missing.") }
+        return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+    }
     public static func bundled() throws -> Self {
         guard let url = Bundle.module.url(forResource: "compatibility", withExtension: "json", subdirectory: "Resources") else {
             throw LauncherError("CATALOG_MISSING", "Bundled compatibility profile is missing.")

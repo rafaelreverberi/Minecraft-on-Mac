@@ -1,33 +1,14 @@
-# Minecraft on Mac — native development preview
+# Minecraft on Mac — managed installation preview
 
-A SwiftUI macOS launcher with an isolated Rust Microsoft package-account helper. Targets Apple Silicon and macOS 14+. This is a working development milestone, **not a production release or complete fresh-install launcher**.
+Use the packaged app: CrossOver installed and licensed, then **Sign In, Install & Play**. The launcher downloads the owned game and Microsoft components, prepares its own environment, and verifies the installation. Destination Macs need no developer tools. See [managed installation](docs/MANAGED-INSTALLATION.md) and [acceptance evidence](docs/ACCEPTANCE.md).
 
-## What works
+The app targets Apple Silicon and macOS 14+. It is a private ad-hoc signed preview. A full fresh Microsoft-account download, decryption, dedicated environment and live gameplay passed on the development Mac; an independent second-Mac run and public notarization remain unverified.
 
-- Native game library with Dungeons II and a clearly unavailable Bedrock placeholder.
-- Discovery/registration of the gold-reference local Dungeons installation. Arbitrary user-selected paths and prepared CrossOver bottles are supported when they match the pinned profile.
-- Direct hosted CrossOver launch of `Dungeons/Binaries/WinGDK/Dungeons-WinGDK-Shipping.exe`; reference DLL/debug/workdir flags preserved. Raw game output is discarded.
-- Hash/PE/bottle validation, the five preserved synthetic production-writing ABI tests under Wine, all 61 XCurl names/ordinals, empty/nonempty encoding negotiation, and seven runtime loader exports.
-- Durable library, exclusive writer lock, separate APFS snapshots with full file hash inventories, atomic current-version selection, manual rollback, interrupted-staging cleanup, compatibility-only repair of managed snapshots from a separate verified local source.
-- Manifest-based managed-version removal; external registration removal leaves its game files intact. Saves, accounts and user bottles are preserved.
-- Native Microsoft sign-in/sign-out and content-license/package-version check using Xodus's real service flow. Credentials use a dedicated native Keychain namespace. Failed checks never imply ownership. Interactive/service validation requires the user to sign in.
-- Fixed-schema sanitized diagnostics, on-demand dependency discovery, optional developer details, signature verification API for future compatibility catalogs.
+Managed installations use native Microsoft login, entitlement-first acquisition, persistent local decryption, pinned official components, a dedicated CrossOver environment, and a native Keychain credential bridge. No reference game folder or prepared reference bottle is required on the destination Mac. Setup keeps the current version available until all new-file and ABI checks pass. Unsupported Store versions fail closed. Saved games live in the owned bottle and survive version removal or a managed reinstall.
 
-## Current boundaries
+External installations and APFS snapshots remain available for migration and rollback. Their existing accounts and files are preserved. The native account only switches authentication for newly managed installations. Full account/bottle/save uninstall and Bedrock support are not implemented.
 
-The existing Windows runtime was compiled with Xodus's `key-chain-file` feature. The launcher does not read, copy, migrate or remove its credential store. Reference Play is a development migration mode preserving that existing account flow. Public release needs a memory-only Windows credential backend with a native Keychain broker. Native package-account sign-in is **separate from the game's existing sign-in** until that migration is validated.
-
-Fresh downloads, extraction, updates from the Store, managed bottle provisioning/reset and full launcher-data removal are not exposed as supported operations. The audited Xodus streaming CLI needs an entitlement-first structured interface, verified extraction receipts and stronger failure/path/integrity handling. Its current exit status cannot prove successful extraction. No game is downloaded just to display an Install button.
-
-Only build 1.1.1.0 and its exact hashes are supported by the local profile. Managed snapshots currently copy an already installed, legitimately obtained local game; they do not establish ownership. Unknown builds fail closed. Gameplay/save/multiplayer and a new native Microsoft account require separate live acceptance checks.
-
-## Run the built app
-
-Open `build/Minecraft on Mac.app`. CrossOver must already be installed and the selected bottle must contain the reference runtime. The first-run migration candidate is the legacy installation under your home `Games/MinecraftDungeons2-FullyDecrypted`; if absent, choose a folder in the app. This is a migration discovery rule, not a fixed user path.
-
-Use Versions to create an APFS snapshot, select it, repair it, or remove it. Select a different version or explicitly clear Current before removing the selected installation. An external reference offers Unregister instead of deleting files.
-
-The package-account panel offers Sign In, Check Ownership / Updates and Sign Out. To switch that account, sign out and sign in again. This does not switch the reference game's account.
+Open `build/Minecraft on Mac.app`. Install and activate CrossOver if necessary, then click **Sign In, Install & Play**. Updates are checked through the real Store service. Use Versions for rollback/removal and Settings for interrupted staging cleanup. Only game build 1.1.1.0 currently has a pinned compatibility profile. Unknown newer builds need a tested launcher release before installation.
 
 ## Build and test (developers only)
 

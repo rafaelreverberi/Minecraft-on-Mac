@@ -12,3 +12,6 @@ Games/
 Cache/
 
 NativeHelper/target/
+
+Compatibility/Runtime/target/
+Shared/CredentialBridge/target/

@@ -1,25 +1,23 @@
-# Acceptance evidence — 2 October 2026
+# Acceptance evidence — 2 October 2026, 0.2.0
 
-This record distinguishes code/package tests from interactive game acceptance.
+The managed path was exercised with the user's native Microsoft sign-in and a fresh official package, without copying reference credentials, game data or an existing bottle.
 
-| Requirement | Evidence | Result |
-|---|---|---|
-| Existing installation appears | Packaged app registered 1.1.1.0, 9,672,194,544 logical bytes, bundled profile and current UUID in durable library | Verified through app-created metadata; UI visual check unavailable |
-| Native Play service starts shipping EXE | Packaged app `--smoke-launch-current` invoked AppModel.play, recorded installationVerified/launchStarted, real WinGDK shipping process observed | Process start verified; actual button interaction/menu not visually checked |
-| Correct account label | Preserved runtime's cached authenticated profile code and existing game login | Prior user-confirmed reference; new UI-native account sign-in pending |
-| Real ownership | Native helper uses content license before package-version lookup; Keychain-only signed-out status test passed | Code/build/typed protocol verified; live owned account pending |
-| Fresh install/decryption | Production controls gated | Pending secure Windows runtime broker and verified extraction helper |
-| Compatibility profile | Original EXE and five DLL hashes pinned; game-root and bottle runtime checked; x86_64 PE check | Live reference verification passed |
-| Existing ABI tests | Exact production-writing fixtures extracted in copied source tree | Five macOS tests and five Win64/Wine tests passed |
-| XCurl/runtime | 61 names and ordinals; easy-handle creation; empty and nonempty ACCEPT_ENCODING; seven actual wrapper exports/loadability | Live Wine probes passed without network/account APIs |
-| Menu/error 0063 | Game process launched; raw output discarded | Native visual confirmation pending |
-| Versions/rollback/removal | Disposable PE/game fixtures: APFS snapshot, unchanged current, switch, damage/failure, DLL repair, rollback, removal/current guard, external unregister | Automated pass; actual two different Store versions pending |
-| Saves/login/bottle safety | Version removal constrained to managed receipt; external registration removal leaves files; no save/account/bottle cleanup path invoked | Code/fixture evidence; real save persistence pending |
-| Diagnostics/signatures | Allowlisted report, invalid account schema rejection, signed catalog tamper/wrong-key/rollback rejection | Automated pass |
-| Build/package | Swift 6 release arm64 app, locked Rust helper, resource/probe/helper digests, ad-hoc codesign verification | Passed; Developer ID/notarization pending |
-| Reference preservation | Rehashed original source inventory, shipping EXE and five DLLs after native launch | All unchanged |
-| Distribution contents | Packaged app inspected for DLLs | Zero Microsoft DLLs; only own helper/synthetic probe executables |
+| Requirement | Observed evidence |
+|---|---|
+| Real account/ownership | User completed Microsoft sign-in. Native Keychain status, actual content license and Store lookup succeeded. |
+| Full fresh download | 9,601,531,904-byte official encrypted package downloaded. Revision 55640c99-2b99-4abd-ba3b-ed4198e427d3, normalized build 1.1.1.0. |
+| Package integrity | Untouched reference header/hash-table prefix matched. Every stored data page passed hash-table verification before decryption; full SHA-256 recorded and now embedded as the release pin. Release acquisition rejects unknown digestless revisions. |
+| Persistent extraction | Complete local extraction succeeded; roughly 9.6 GB of game data and 113 recorded game/compatibility files. No streaming mount or original game-folder dependency. |
+| Components/environment | Pinned official GDK/NuGet/Visual C++ downloads, native extraction, a new UUID-owned Windows 11 CrossOver bottle, VC installation and all three ABI/export/load probes succeeded. |
+| Managed Play | Packaged native launcher recorded installationVerified and launchStarted; actual shipping process and per-launch Keychain broker observed. User explicitly confirmed menu, real profile and gameplay without error 0063. |
+| Saves | Five save files observed in stable account storage inside the owned bottle, outside version directories. Save contents/account IDs were not read or logged. Cross-version persistence and a full save/restart acceptance cycle remain unverified. |
+| Original preservation | Original source inventory and critical game files rehashed unchanged. Original account and bottle were not migrated or overwritten. |
+| Automated suite | 21 Swift tests: 19 offline passes, two opt-in live skips. Four native helper tests and two encrypted bridge tests passed. Disposable CrossOver provisioning/probes were separately exercised. |
+| Native/Windows credential bridge | Live Wine client/macOS server exchange passed with a synthetic fixture. Real managed gameplay subsequently succeeded with native Keychain credentials. No plaintext credential backend is enabled for managed installs. |
+| Package/signing | arm64 release app, own runtime/proxy, helper and synthetic probes; checked resource digests and ad-hoc codesign. No Microsoft DLLs, game data, account cache or bottle included. |
 
-Final automated suite: 17 Swift tests, with the live reference test separately exercised successfully before launching the game. The offline run skips that one live test and passes the other 16; two Rust protocol tests pass. Synthetic destructive tests run in disposable folders and do not target the installed game.
+Live testing found and fixed Store composite version parsing, missing FileHash, legacy encrypted CDN transport handling, an ignored nested NTFS dependency patch and optional redistributable executables incorrectly subjected to the shipping x64 requirement. Optional installers remain hash-verified. A regression test accepts their differing architecture and rejects tampering.
 
-The native UI tool failed twice with `Sky Computer Use native pipe closed before response`, so no screenshot/button/menu claim is made. The app and launched game were left available for user review. No fresh download, account sign-in, credential migration, forced termination, original DLL replacement or real game uninstall was performed.
+The user confirmed gameplay in the fresh installation. Native UI automation is unavailable (Sky Computer Use native pipe closed before response), so that visual evidence is user confirmation, not an automated screenshot. The game was left running for the user; it was not forcibly stopped.
+
+Remaining boundaries: independent second Apple Silicon Mac, real multi-version Store update/rollback, full save/restart persistence cycle, Intel support, download range resume, and Developer ID/hardened runtime/notarization. Only the pinned 1.1.1.0 build is supported. CrossOver must separately be installed/licensed. This is a private preview, not a public notarized release.

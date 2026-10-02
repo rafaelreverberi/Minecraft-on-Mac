@@ -61,7 +61,10 @@ public actor GameProcess {
         }
         _ = try crossOver.bottleURL(install.bottle)
         let p = Process(); p.executableURL = crossOver.wine; p.arguments = crossOver.launchArguments(install)
-        p.environment = CrossOver.environment(); p.currentDirectoryURL = install.path.appendingPathComponent("Dungeons/Binaries/WinGDK")
+        var broker: CredentialBroker?
+        if install.compatibilityProfile.hasPrefix("dungeons2-managed-") { broker = try CredentialBroker.start() }
+        defer { broker?.stop() }
+        p.environment = CrossOver.environment().merging(broker?.environment ?? [:]) { _, new in new }; p.currentDirectoryURL = install.path.appendingPathComponent("Dungeons/Binaries/WinGDK")
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         process = p
         defer { process = nil }

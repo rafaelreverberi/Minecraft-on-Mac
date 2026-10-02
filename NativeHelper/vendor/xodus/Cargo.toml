@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/xodus"]
+members = ["crates/xodus", "crates/msixvc", "crates/msixvc-common"]
 
 [workspace.package]
 rust-version = "1.98.0"

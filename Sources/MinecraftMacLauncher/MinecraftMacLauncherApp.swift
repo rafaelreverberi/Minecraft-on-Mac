@@ -7,7 +7,7 @@ struct MinecraftMacLauncherApp: App {
     @StateObject private var model = AppModel()
     init() { NSApplication.shared.setActivationPolicy(.regular) }
     var body: some Scene {
-        WindowGroup("Minecraft on Mac") { LauncherView().environmentObject(model).frame(minWidth: 900, minHeight: 650).task { await model.load(); NSApplication.shared.activate(ignoringOtherApps: true); if ProcessInfo.processInfo.arguments.contains("--smoke-launch-current") { await model.play() } } }
+        WindowGroup("Minecraft on Mac") { LauncherView().environmentObject(model).frame(minWidth: 900, minHeight: 650).task { await model.load(); NSApplication.shared.activate(ignoringOtherApps: true); if ProcessInfo.processInfo.arguments.contains("--smoke-launch-current") { await model.play() }; if ProcessInfo.processInfo.arguments.contains("--setup") { await model.installAndPlay() }; if ProcessInfo.processInfo.arguments.contains("--repair-current"), let current = model.current { await model.repair(current); if model.error == nil { await model.play() } } } }
         Settings { SettingsView().environmentObject(model).frame(width: 580, height: 440).padding(24) }
     }
 }
@@ -50,7 +50,7 @@ struct LauncherView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(progress.phase).font(.headline)
                         if let fraction = progress.fraction { ProgressView(value: fraction) } else { ProgressView().controlSize(.small) }
-                        if progress.total > 0 { Text("\(progress.completed) / \(progress.total) files").font(.caption).foregroundStyle(.secondary) }
+                        if progress.total > 0 { Text(progress.phase.contains("Downloading") || ["Preparing game files", "Verifying encrypted package"].contains(progress.phase) ? "\(ByteCountFormatter.string(fromByteCount: progress.completed, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: progress.total, countStyle: .file))" : "\(progress.completed) / \(progress.total) files").font(.caption).foregroundStyle(.secondary) }
                     }.padding().frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
                 }
                 if !model.message.isEmpty { Text(model.message).font(.callout).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity, alignment: .leading) }
@@ -80,14 +80,14 @@ struct DungeonsView: View {
             if let install = model.current {
                 HStack(alignment: .top, spacing: 24) {
                     metric("Installed", "Version \(install.version)", "shippingbox")
-                    metric("Compatibility", install.state == .ready ? "Reference hashes verified" : "Needs verification", "checkmark.shield")
+                    metric("Compatibility", install.state == .ready ? "Files and runtime verified" : "Needs verification", "checkmark.shield")
                     metric("Storage", ByteCountFormatter.string(fromByteCount: install.diskBytes, countStyle: .file), "internaldrive")
                 }
                 GroupBox {
                     VStack(alignment: .leading, spacing: 8) {
                         LabeledContent("CrossOver bottle", value: install.bottle)
-                        LabeledContent("Account", value: "Managed by the existing game login")
-                        LabeledContent("Available version", value: "Not checked — package service pending")
+                        LabeledContent("Account", value: install.compatibilityProfile.hasPrefix("dungeons2-managed-") ? (model.account?.gamertag ?? "Microsoft • macOS Keychain") : "Existing game login")
+                        LabeledContent("Available version", value: model.account?.availableVersion ?? "Not checked")
                         LabeledContent("Installation", value: install.managed ? "Launcher-managed snapshot" : "External reference · protected")
                     }.padding(8)
                 }
@@ -100,14 +100,22 @@ struct DungeonsView: View {
                 }
                 Text("Reference launch preserves the existing Microsoft/Xbox login. File checks do not establish entitlement or validate gameplay, saves and multiplayer.").font(.caption).foregroundStyle(.secondary)
             } else {
-                Text("Bring your existing installation").font(.title2.bold())
-                Text("Register a locally installed copy of Dungeons II and choose its prepared CrossOver bottle. Your original game files stay where they are.").foregroundStyle(.secondary)
+                Text("Sign in and play").font(.title2.bold())
+                Text("Sign in with your Microsoft account. The launcher verifies your game license, downloads the game and components, and creates its CrossOver environment.").foregroundStyle(.secondary)
                 BottlePicker()
                 Button("Choose Installation…") { model.chooseInstallation() }.buttonStyle(.borderedProminent).disabled(model.busy || model.selectedBottle.isEmpty)
             }
             AccountView()
-            GroupBox("Fresh install and updates") {
-                Text("The native Microsoft helper can check a real content license and available package version. Fresh game downloads remain gated until a memory-only Windows runtime broker and verified extraction receipts are ready.").font(.callout).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            GroupBox("Automatic installation") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Game downloads, compatibility components and the game environment are managed automatically. CrossOver must be installed and licensed. Allow at least 35 GB free during setup.").font(.callout).foregroundStyle(.secondary)
+                    HStack {
+                        Button(model.current == nil ? "Sign In, Install & Play" : "Install a Fresh Managed Copy") { Task { await model.installAndPlay() } }.buttonStyle(.borderedProminent)
+                        if model.current != nil { Button("Check for Updates") { Task { await model.checkUpdates() } } }
+                    }.disabled(model.busy || model.running)
+                    Text("Installation downloads Microsoft runtime components under their publisher's license terms.").font(.caption).foregroundStyle(.secondary)
+                    Link("Microsoft GDK license", destination: URL(string: "https://github.com/microsoft/GDK/blob/main/LICENSE.md")!)
+                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -181,7 +189,7 @@ struct VersionsView: View {
 struct DownloadsView: View {
     var body: some View {
         ContentUnavailableView { Label("Downloads", systemImage: "arrow.down.circle") } description: {
-            Text("No active downloads.\nFresh installations require the pending secure Microsoft entitlement and package integration.")
+            Text("Downloads and preparation appear here while the launcher installs a game. Start with Sign In, Install & Play on the game page.")
         }
     }
 }
@@ -199,7 +207,8 @@ struct SettingsView: View {
                     if let crossover = model.crossOver {
                         Button("Open Selected Bottle") { if let url = try? crossover.bottleURL(model.selectedBottle) { model.open(url) } }
                     }
-                    Text("Create or repair bottles in CrossOver. Existing user bottles are never deleted by this preview.").font(.caption).foregroundStyle(.secondary)
+                    Link("Download CrossOver from CodeWeavers", destination: URL(string: "https://www.codeweavers.com/crossover")!)
+                    Text("The launcher creates its own game environment automatically. The bottle picker is only needed for external installations.").font(.caption).foregroundStyle(.secondary)
                 }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
             }
             GroupBox("Storage") {
@@ -265,7 +274,7 @@ struct AccountView: View {
                     Button("Check Ownership / Updates") { Task { await model.accountOperation(.check) } }
                     Button("Sign Out…") { signOut = true }
                 }.disabled(model.busy || model.running)
-                Text("This native account uses macOS Keychain. It is separate from the reference game's existing login until the secure runtime migration is complete.").font(.caption).foregroundStyle(.secondary)
+                Text("Managed installations use this same Microsoft login through the macOS Keychain bridge. External reference installations retain their existing account.").font(.caption).foregroundStyle(.secondary)
             }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
         }
         .confirmationDialog("Sign out of the native package account?", isPresented: $signOut, titleVisibility: .visible) {

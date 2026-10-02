@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Build a private arm64 preview; no runtime compiler requirements or Microsoft DLLs."""
 from pathlib import Path
-import subprocess, shutil, hashlib, plistlib, json
+import subprocess, shutil, hashlib, plistlib, json, os
 root=Path(__file__).resolve().parents[1]
-subprocess.run(['cargo','build','--release','--locked','--manifest-path',str(root/'NativeHelper/Cargo.toml')],check=True)
+helper_build=['cargo','build','--release','--locked','--manifest-path',str(root/'NativeHelper/Cargo.toml')]
+if os.environ.get('MML_BOOTSTRAP_PINS')=='1':helper_build+=['--features','bootstrap-pins']
+subprocess.run(helper_build,check=True)
 subprocess.run(['python3',str(root/'scripts/build_probes.py')],check=True)
+subprocess.run(['python3',str(root/'scripts/build_compatibility.py')],check=True)
 helper=root/'NativeHelper/target/release/minecraft-native-helper'
 # Sign helper first because signing changes its digest.
 subprocess.run(['codesign','--force','--sign','-',str(helper)],check=True)
@@ -18,8 +21,11 @@ shutil.copy2(bin_dir/'MinecraftMacLauncher',app/'Contents/MacOS/MinecraftMacLaun
 shutil.copy2(helper,app/'Contents/Helpers/minecraft-native-helper')
 for resource in bin_dir.glob('*.bundle'):
  shutil.copytree(resource,app/'Contents/Resources'/resource.name)
+notices=app/'Contents/Resources/Notices';notices.mkdir()
+for source,name in [('LICENSE','LICENSE'),('docs/VENDOR.md','VENDOR.md'),('docs/MANAGED-INSTALLATION.md','MANAGED-INSTALLATION.md'),('Compatibility/Runtime/LICENSE','Runtime-MIT-LICENSE'),('Compatibility/XCurl/LICENSE','XCurl-MIT-LICENSE')]:
+ shutil.copy2(root/source,notices/name)
 # Xcode's SwiftPM engine produces resource .bundle directories alongside executable.
-info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
+info={'CFBundleIdentifier':'org.minecraftmac.launcher.preview','CFBundleName':'Minecraft on Mac','CFBundleDisplayName':'Minecraft on Mac','CFBundleExecutable':'MinecraftMacLauncher','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.2.0','CFBundleVersion':'2','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSPrincipalClass':'NSApplication','LSApplicationCategoryType':'public.app-category.games'}
 (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)
