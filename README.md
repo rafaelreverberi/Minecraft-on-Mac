@@ -2,7 +2,17 @@
 
 An unofficial native macOS launcher for **Minecraft Dungeons II** and **Minecraft: Bedrock for Windows**, using your legitimately owned Microsoft Store games and separately installed CrossOver.
 
-**[Download v0.4.0](https://github.com/rafaelreverberi/Minecraft-on-Mac/releases/tag/v0.4.0)** · [Quick start](docs/INSTALL.md) · [Changelog](CHANGELOG.md) · [Installation details](docs/MANAGED-INSTALLATION.md) · [Bedrock details](docs/BEDROCK.md) · [Test evidence](docs/ACCEPTANCE.md)
+> [!WARNING]
+> **Unofficial project. Use at your own risk.**
+>
+> - Not affiliated with, endorsed by or approved by Microsoft, Mojang Studios, Xbox or CodeWeavers. "Minecraft", "Xbox" and "Microsoft" are trademarks of the Microsoft group of companies. "CrossOver" is a trademark of CodeWeavers. All other trademarks belong to their owners.
+> - You must own the game on your Microsoft account. This launcher includes no game files, licences or paid content and unlocks nothing; it only uses the copy you already own.
+> - CrossOver is a separate paid product from CodeWeavers and is not included.
+> - Third-party launchers may go against the terms of the game or platform. Microsoft can change or block how this works at any time, and that could affect your account.
+> - Provided "as is", without warranty of any kind, under the GPL-3.0 licence in [LICENSE](LICENSE). The authors and distributors are not liable for any damage, data loss, account action or other problem resulting from its use.
+> - Back up your worlds before installing or switching game versions.
+
+**[Download the latest release](../../releases/latest)** · [Quick start](docs/INSTALL.md) · [Changelog](CHANGELOG.md) · [Installation details](docs/MANAGED-INSTALLATION.md) · [Bedrock details](docs/BEDROCK.md) · [Test evidence](docs/ACCEPTANCE.md)
 
 ## Install and play
 
